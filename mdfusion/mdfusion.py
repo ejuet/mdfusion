@@ -16,6 +16,7 @@ from pathlib import Path
 from datetime import date
 from tqdm import tqdm  # progress bar
 import time
+import selectors
 import mdfusion.htmlark.htmlark as htmlark
 
 import toml as tomllib  # type: ignore
@@ -115,31 +116,56 @@ def handle_pandoc_error(e, cmd):
     sys.exit(1)
 
 
+
 def run_pandoc_with_spinner(cmd, out_pdf):
     try:
         proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # line-buffered
         )
+
+        sel = selectors.DefaultSelector()
+        sel.register(proc.stdout, selectors.EVENT_READ)
+        sel.register(proc.stderr, selectors.EVENT_READ)
+
         spinner_cycle = ["|", "/", "-", "\\"]
         idx = 0
         spinner_msg = "Pandoc running... "
+
         while proc.poll() is None:
+            # spinner
             print(
                 f"\r{spinner_msg}{spinner_cycle[idx % len(spinner_cycle)]}",
                 end="",
                 flush=True,
             )
             idx += 1
-            time.sleep(0.15)
-        print(
-            "\r" + " " * (len(spinner_msg) + 2) + "\r", end="", flush=True
-        )  # clear spinner line
-        stdout, stderr = proc.communicate()
+
+            # read available pandoc output
+            for key, _ in sel.select(timeout=0.1):
+                line = key.fileobj.readline()
+                if line:
+                    # clear spinner line before printing output
+                    print("\r" + " " * (len(spinner_msg) + 2) + "\r", end="")
+                    print(line, end="")
+
+            time.sleep(0.05)
+
+        # drain remaining output
+        for stream in (proc.stdout, proc.stderr):
+            for line in stream:
+                print(line, end="")
+
+        print("\r" + " " * (len(spinner_msg) + 2) + "\r", end="", flush=True)
+
         if proc.returncode != 0:
-            raise subprocess.CalledProcessError(
-                proc.returncode, cmd, output=stdout, stderr=stderr
-            )
+            raise subprocess.CalledProcessError(proc.returncode, cmd)
+
         print(f"Merged PDF written to {out_pdf}")
+
     except subprocess.CalledProcessError as e:
         handle_pandoc_error(e, cmd)
 
@@ -201,6 +227,7 @@ class RunParams:
     merged_md: Path | None = None  # folder to write merged markdown to. Using a temp folder by default.
     remove_alt_texts: list[str] = field(default_factory=lambda: ["alt text"])  # alt texts to remove from images, comma-separated
     toc: bool = False  # include a table of contents
+    verbose: bool = False  # enable verbose output for pandoc
 
     # Add help strings for simple-parsing
     def __post_init__(self):
@@ -226,6 +253,9 @@ class RunParams:
                     "-A", footer_path
                 ]
             )
+        
+        if self.verbose:
+            self.pandoc_args.append("--verbose")
 
 
 def run(params_: "RunParams"):
