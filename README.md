@@ -91,7 +91,7 @@ no_toc = false
 title_page = true
 title = "My Book"
 author = "Jane Doe"
-pandoc_args = ["--number-sections", "--slide-level", "2"]
+pandoc_args = ["--number-sections", "--slide-level", "2", "--toc-depth", "4"]
 # header_tex = "header.tex"  # Optional: custom LaTeX header
 ```
 
