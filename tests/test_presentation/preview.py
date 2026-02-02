@@ -8,15 +8,16 @@ def main():
         description="Open a Reveal.js deck in Chromium with print CSS emulation"
     )
     parser.add_argument(
-        "input",
+        "--input",
         help="Path to your Reveal.js HTML file",
-        type=os.path.abspath
+        type=os.path.abspath,
+        default=os.path.join(os.path.dirname(__file__), "my_presentation.html"),
     )
     args = parser.parse_args()
 
     with sync_playwright() as p:
         # Launch the Chromium that comes with Playwright, in headed mode
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=False, executable_path="/usr/bin/chromium")
         page = browser.new_page()
 
         # Tell the page to use your @media print rules

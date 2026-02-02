@@ -169,7 +169,7 @@ def run_pandoc_with_spinner(cmd, out_pdf):
     except subprocess.CalledProcessError as e:
         handle_pandoc_error(e, cmd)
 
-def html_to_pdf(input_html: Path, output_pdf: Path | None = None):
+def html_to_pdf(input_html: Path, chromium_path: str | None = None, output_pdf: Path | None = None):
     """Convert HTML to PDF using Playwright."""
     try:
         from playwright.sync_api import sync_playwright
@@ -181,7 +181,11 @@ def html_to_pdf(input_html: Path, output_pdf: Path | None = None):
         output_pdf = input_html.with_suffix(".pdf")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        # if chromium is installed globally at specified path, use that
+        if chromium_path and os.path.isfile(chromium_path):
+            browser = p.chromium.launch(executable_path=chromium_path)
+        else:
+            browser = p.chromium.launch()
         page = browser.new_page()
         url = "file://" + str(input_html.resolve())
         page.goto(url + "?print-pdf", wait_until="networkidle")
@@ -228,6 +232,7 @@ class RunParams:
     remove_alt_texts: list[str] = field(default_factory=lambda: ["alt text"])  # alt texts to remove from images, comma-separated
     toc: bool = False  # include a table of contents
     verbose: bool = False  # enable verbose output for pandoc
+    chromium_path: str = "/usr/bin/chromium"  # path to chromium executable for HTML to PDF conversion. Optional, will use playwright's chromium if not provided. default: /usr/bin/chromium
 
     # Add help strings for simple-parsing
     def __post_init__(self):
@@ -364,7 +369,7 @@ def run(params_: "RunParams"):
                 
         # if output is html presentation, convert to pdf as well
         if params.presentation:
-            html_to_pdf(final_output)
+            html_to_pdf(final_output, chromium_path=params.chromium_path)
             print(f"Converted HTML presentation to PDF: {final_output.with_suffix('.pdf')}")
     except Exception as e:
         print(f"Error during processing: {e}", file=sys.stderr)
