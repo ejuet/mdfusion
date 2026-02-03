@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import shutil
 import getpass
+import html
 from pathlib import Path
 from datetime import date
 from tqdm import tqdm  # progress bar
@@ -23,6 +24,7 @@ import toml as tomllib  # type: ignore
 from dataclasses import dataclass, field
 from simple_parsing import ArgumentParser
 import importlib.resources as pkg_resources
+import bs4
 
 
 def natural_key(s: str):
@@ -228,6 +230,7 @@ class RunParams:
     header_tex: Path | None = None  # path to a user-defined header.tex file (default: ./header.tex)
     presentation: bool = False  # if True, use reveal.js presentation mode
     footer_text: str | None = ""  # custom footer text for presentations
+    animate_all_lines: bool = True  # add reveal.js fragment animation to each line in presentations
     merged_md: Path | None = None  # folder to write merged markdown to. Using a temp folder by default.
     remove_alt_texts: list[str] = field(default_factory=lambda: ["alt text"])  # alt texts to remove from images, comma-separated
     toc: bool = False  # include a table of contents
@@ -337,12 +340,19 @@ def run(params_: "RunParams"):
             
             
             """
-            Create a js object with the custom plugin config
-            So we can read the values from the HTML file/ Reveal plugins
+            Provide a config script tag with data attributes so public JS can read it.
             """
-            # TODO allow including html files for this
-            # Prepare inline config script
-            config_script = f"<script>window.config = {{ footerText: '{params.footer_text}' }};</script>"
+            footer_text = html.escape(params.footer_text or "", quote=True)
+            animate_all_lines = "true" if params.animate_all_lines else "false"
+            is_presentation = "true" if params.presentation else "false"
+            config_script = (
+                "<script "
+                "src=\"mdfusionConfig.js\" "
+                f"data-footer-text=\"{footer_text}\" "
+                f"data-animate-all-lines=\"{animate_all_lines}\" "
+                f"data-presentation=\"{is_presentation}\""
+                "></script>"
+            )
             
             # Inject inline window.config script into <head> in HTML output
             output_file = Path(out_pdf)
