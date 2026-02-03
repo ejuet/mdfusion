@@ -12,7 +12,6 @@ import subprocess
 import tempfile
 import shutil
 import getpass
-import html
 from pathlib import Path
 from datetime import date
 from tqdm import tqdm  # progress bar
@@ -342,18 +341,14 @@ def run(params_: "RunParams"):
             """
             Provide a config script tag with data attributes so public JS can read it.
             """
-            footer_text = html.escape(params.footer_text or "", quote=True)
-            animate_all_lines = "true" if params.animate_all_lines else "false"
-            is_presentation = "true" if params.presentation else "false"
+            # TODO allow including html files for this
+            # Prepare inline config script
             config_script = (
-                "<script "
-                "src=\"mdfusionConfig.js\" "
-                f"data-footer-text=\"{footer_text}\" "
-                f"data-animate-all-lines=\"{animate_all_lines}\" "
-                f"data-presentation=\"{is_presentation}\""
-                "></script>"
+                "<script>"
+                f"window.config = {{ footerText: '{params.footer_text}', animateAllLines: {str(params.animate_all_lines).lower()} }};"
+                "</script>"
             )
-            
+
             # Inject inline window.config script into <head> in HTML output
             output_file = Path(out_pdf)
             html_content = output_file.read_text(encoding="utf-8")
