@@ -303,7 +303,9 @@ def _is_path_type(tp) -> bool:
 
 
 def _iter_config_sections(root_cls) -> list[_ConfigSection]:
-    root_name = getattr(root_cls, "__config_section__", "mdfusion")
+    root_name = getattr(root_cls, "__config_section__", None)
+    if not root_name:
+        root_name = root_cls.__name__.lower()
     sections: list[_ConfigSection] = [_ConfigSection(root_name, root_cls, ())]
 
     def walk(cls, path: tuple[str, ...]) -> None:
@@ -361,12 +363,71 @@ def _normalize_params(params: RunParams) -> None:
         params.pandoc_args.append("--verbose")
 
 
+def _apply_presentation_pandoc_args(params: RunParams) -> None:
+    if not params.presentation.presentation:
+        return
+    if params.output and not params.output.lower().endswith(".html"):
+        raise ValueError("Output file for presentations must be HTML, got: " + params.output)
+
+    header_path = pkg_resources.files("mdfusion.reveal").joinpath("header.html").__fspath__()
+    footer_path = pkg_resources.files("mdfusion.reveal").joinpath("footer.html").__fspath__()
+    params.pandoc_args.extend(
+        [
+            "-t",
+            "revealjs",
+            "-V",
+            "revealjs-url=https://cdn.jsdelivr.net/npm/reveal.js@4",
+            "-H",
+            header_path,
+            "-A",
+            footer_path,
+        ]
+    )
+
+
+def discover_config_path(
+    argv: list[str] | None,
+    *,
+    flag_names: tuple[str, ...] = ("-c", "--config_path"),
+    default_filename: str = "mdfusion.toml",
+    cwd: Path | None = None,
+) -> Path | None:
+    args = argv if argv is not None else sys.argv
+    cfg_path = None
+    for i, a in enumerate(args):
+        if a in flag_names and i + 1 < len(args):
+            cfg_path = Path(args[i + 1])
+            break
+    if cfg_path is None:
+        base = cwd if cwd is not None else Path.cwd()
+        default_cfg = base / default_filename
+        if default_cfg.is_file():
+            cfg_path = default_cfg
+    return cfg_path
+
+
+def parse_known_args_for(
+    root_cls,
+    *,
+    description: str | None = None,
+    argv: list[str] | None = None,
+    parser_factory=ArgumentParser,
+):
+    parser = parser_factory(description=description)
+    parser.add_arguments(root_cls, dest="params")
+    args, extra = parser.parse_known_args(argv)
+    return args.params, extra
+
+
 def run(params_: "RunParams"):
     if not requirements_met():
         return
 
     # Merge config defaults with CLI args
-    params: RunParams = merge_cli_args_with_config(params_, params_.config_path)
+    params: RunParams = merge_cli_args_with_config_for(
+        params_, params_.config_path, root_cls=RunParams, normalize=_normalize_params
+    )
+    _apply_presentation_pandoc_args(params)
 
     if not params.root_dir:
         if params_.config_path:
@@ -480,10 +541,10 @@ def run(params_: "RunParams"):
             shutil.rmtree(temp_dir)
 
 
-def load_config_defaults(cfg_path: Path | None) -> RunParams:
-    """Load config defaults from TOML file, if present. Returns RunParams object."""
-    params = _make_unset_instance(RunParams)
-    sections = _iter_config_sections(RunParams)
+def load_config_defaults_for(cfg_path: Path | None, *, root_cls):
+    """Load config defaults from TOML file, if present. Returns a dataclass instance."""
+    params = _make_unset_instance(root_cls)
+    sections = _iter_config_sections(root_cls)
 
     if cfg_path and cfg_path.is_file():
         with cfg_path.open("r", encoding="utf-8") as f:
@@ -518,12 +579,20 @@ def load_config_defaults(cfg_path: Path | None) -> RunParams:
 
     return params
 
-def merge_cli_args_with_config(cli_args: RunParams, config_path: Path | None) -> RunParams:
+
+def merge_cli_args_with_config_for(
+    cli_args,
+    config_path: Path | None,
+    *,
+    root_cls,
+    normalize=None,
+):
     """Merge CLI args with config defaults. CLI args take precedence. Arrays are merged."""
-    config_params = load_config_defaults(config_path)
-    _normalize_params(config_params)
-    _normalize_params(cli_args)
-    default_params = RunParams()
+    config_params = load_config_defaults_for(config_path, root_cls=root_cls)
+    if normalize is not None:
+        normalize(config_params)
+        normalize(cli_args)
+    default_params = root_cls()
 
     def merge_section(cli_section, config_section, default_section) -> None:
         for f in fields(type(cli_section)):
@@ -546,25 +615,8 @@ def merge_cli_args_with_config(cli_args: RunParams, config_path: Path | None) ->
                     setattr(cli_section, k, v)
 
     merge_section(cli_args, config_params, default_params)
-    _normalize_params(cli_args)
-
-    # Post-merge: inject presentation-specific pandoc args if needed
-    if cli_args.presentation.presentation:
-        if cli_args.output and not cli_args.output.lower().endswith(".html"):
-            raise ValueError("Output file for presentations must be HTML, got: " + cli_args.output)
-
-        header_path = pkg_resources.files("mdfusion.reveal").joinpath("header.html").__fspath__()
-        footer_path = pkg_resources.files("mdfusion.reveal").joinpath("footer.html").__fspath__()
-        cli_args.pandoc_args.extend(
-            [
-                "-t",
-                "revealjs",
-                "-V",
-                "revealjs-url=https://cdn.jsdelivr.net/npm/reveal.js@4",
-                "-H", header_path,
-                "-A", footer_path
-            ]
-        )
+    if normalize is not None:
+        normalize(cli_args)
     return cli_args
 
 
@@ -583,37 +635,17 @@ def requirements_met() -> bool:
 
 
 def main():
-    # Check if config is specified via -c/--config
-    cfg_path = None
-    for i, a in enumerate(sys.argv):
-        if a in ("-c", "--config_path") and i + 1 < len(sys.argv):
-            cfg_path = Path(sys.argv[i + 1])
-            break
-        
-    # If no config specified, check for mdfusion.toml in cwd
-    if cfg_path is None:
-        default_cfg = Path.cwd() / "mdfusion.toml"
-        if default_cfg.is_file():
-            cfg_path = default_cfg
+    cfg_path = discover_config_path(sys.argv)
 
-    # 3) Arg parsing using simple-parsing
-    parser = ArgumentParser(
+    params, extra = parse_known_args_for(
+        RunParams,
         description=(
             "Merge all Markdown files under a directory into one PDF, "
             "with optional title page, image-link rewriting, small margins."
-        )
+        ),
     )
-    parser.add_arguments(RunParams, dest="params")
-    # parser.add_arguments(PresentationParams, dest="presentation")
-
-    # Parse known args, allow extra pandoc args
-    args, extra = parser.parse_known_args()
-
-    params = args.params
-    # params.presentation = args.presentation
     params.config_path = cfg_path
 
-    # Handle extra pandoc args
     if extra:
         params.pandoc_args.extend(extra)
 

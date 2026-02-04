@@ -16,4 +16,4 @@ does_not_exist = true
     )
 
     with pytest.raises(ValueError, match=r"Unknown config key"):
-        mdfusion.load_config_defaults(cfg)
+        mdfusion.load_config_defaults_for(cfg, root_cls=mdfusion.RunParams)
