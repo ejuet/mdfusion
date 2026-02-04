@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 import mdfusion.mdfusion as mdfusion
+from mdfusion import config_utils
 
 
 def test_unknown_config_key_raises(tmp_path):
@@ -16,4 +17,4 @@ does_not_exist = true
     )
 
     with pytest.raises(ValueError, match=r"Unknown config key"):
-        mdfusion.load_config_defaults_for(cfg, root_cls=mdfusion.RunParams)
+        config_utils.load_config_defaults_for(cfg, root_cls=mdfusion.RunParams)
