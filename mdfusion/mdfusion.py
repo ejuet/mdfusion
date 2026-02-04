@@ -397,6 +397,14 @@ def run(params_: "RunParams"):
         if params.merged_md is None:
             shutil.rmtree(temp_dir)
 
+def check_unknown_config_keys(toml_data: dict, sections: dict[str, set[str]]) -> None:
+    """Check for unknown config keys in the provided toml_data dict."""
+    for section, allowed_keys in sections.items():
+        conf = toml_data.get(section, {})
+        unknown_keys = sorted(set(conf.keys()) - allowed_keys)
+        if unknown_keys:
+            raise ValueError(f"Unknown config key(s) in [{section}]: " + ", ".join(unknown_keys))
+
 
 def load_config_defaults(cfg_path: Path | None) -> RunParams:
     """Load config defaults from TOML file, if present. Returns RunParams object."""
@@ -422,10 +430,6 @@ def load_config_defaults(cfg_path: Path | None) -> RunParams:
         runparams_fields = {f.name: f.type for f in fields(RunParams) if f.name != "presentation"}
         presentation_fields = {f.name for f in fields(PresentationParams)}
 
-        # Allow presentation fields to live under [mdfusion] for backward compatibility.
-        for k in list(conf.keys()):
-            if k in presentation_fields:
-                presentation_conf.setdefault(k, conf.pop(k))
         for k, v in conf.items():
             if k in runparams_fields:
                 typ = runparams_fields[k]
@@ -437,6 +441,17 @@ def load_config_defaults(cfg_path: Path | None) -> RunParams:
         for k, v in presentation_conf.items():
             if k in presentation_fields:
                 setattr(params.presentation, k, v)
+                
+        # Check for unknown config keys
+        allowed_keys = {
+            "mdfusion": set(runparams_fields.keys()),
+            "mdfusion.presentation": presentation_fields,
+        }
+        check_unknown_config_keys(toml_data, allowed_keys)
+        
+        
+        conf = toml_data.get("mdfusion", {})
+        presentation_conf = toml_data.get("presentation", {})
 
     # Normalize pandoc_args without triggering other __post_init__ side effects.
     if isinstance(params.pandoc_args, str):

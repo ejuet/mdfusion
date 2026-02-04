@@ -21,7 +21,7 @@ def test_with_config(tmp_path, monkeypatch):
 [mdfusion]
 root_dir = "{docs.as_posix()}"
 output = "my-book.pdf"
-no_toc = true
+toc = false
 title_page = true
 title = "Config Title"
 author = "Config Author"

@@ -21,7 +21,7 @@ def test_with_config(tmp_path, monkeypatch, capsys):
 [mdfusion]
 root_dir = "{docs.as_posix()}"
 output = "my-book.pdf"
-no_toc = true
+toc = false
 title_page = true
 title = "Config Title"
 author = "Config Author"
@@ -52,7 +52,7 @@ pandoc_args ="--number-sections"
     assert cmd[0] == "pandoc"
     assert "-o" in cmd and "my-book.pdf" in cmd
 
-    # no_toc=true means --toc must NOT appear
+    # toc=false means --toc must NOT appear
     assert "--toc" not in cmd
 
     print(cmd, file=sys.stderr)
