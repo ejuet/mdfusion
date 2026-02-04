@@ -250,7 +250,7 @@ class RunParams:
     header_tex: Path | None = None  # path to a user-defined header.tex file (default: ./header.tex)
     presentation: bool = False  # if True, use reveal.js presentation mode
     footer_text: str | None = ""  # custom footer text for presentations
-    animate_all_lines: bool = True  # add reveal.js fragment animation to each line in presentations
+    animate_all_lines: bool = False  # add reveal.js fragment animation to each line in presentations
     merged_md: Path | None = None  # folder to write merged markdown to. Using a temp folder by default.
     remove_alt_texts: list[str] = field(default_factory=lambda: ["alt text"])  # alt texts to remove from images, comma-separated
     toc: bool = False  # include a table of contents
