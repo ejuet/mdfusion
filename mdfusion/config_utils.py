@@ -2,10 +2,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
-from typing import get_args, get_origin
+from typing import get_args, get_origin, get_type_hints
 
 import toml as tomllib  # type: ignore
 from simple_parsing import ArgumentParser
+
+
+def config_dataclass(
+    section_name: str,
+    *,
+    dataclass_factory=dataclass,
+    **dataclass_kwargs,
+):
+    """Dataclass wrapper that tags a class with a config section name."""
+
+    def decorator(cls):
+        setattr(cls, "config_section", section_name)
+        return dataclass_factory(cls, **dataclass_kwargs)
+
+    return decorator
 
 
 @dataclass(frozen=True)
@@ -37,16 +52,22 @@ def _iter_config_sections(root_cls) -> list[_ConfigSection]:
     Parameters:
         root_cls: Root dataclass type for the config tree.
     """
-    root_name = getattr(root_cls, "__config_section__", None)
+    root_name = getattr(root_cls, "config_section", None)
+    if not root_name:
+        root_name = getattr(root_cls, "__config_section__", None)
     if not root_name:
         root_name = root_cls.__name__.lower()
     sections: list[_ConfigSection] = [_ConfigSection(root_name, root_cls, ())]
 
     def walk(cls, path: tuple[str, ...]) -> None:
+        hints = get_type_hints(cls, include_extras=True)
         for f in fields(cls):
-            if _is_dataclass_type(f.type):
-                nested_cls = f.type
-                section_name = getattr(nested_cls, "__config_section__", f.name)
+            f_type = hints.get(f.name, f.type)
+            if _is_dataclass_type(f_type):
+                nested_cls = f_type
+                section_name = getattr(nested_cls, "config_section", None)
+                if not section_name:
+                    section_name = getattr(nested_cls, "__config_section__", f.name)
                 nested_path = path + (f.name,)
                 sections.append(_ConfigSection(section_name, nested_cls, nested_path))
                 walk(nested_cls, nested_path)
@@ -65,10 +86,11 @@ def _get_section_obj(root, path: tuple[str, ...]):
 
 def _section_field_map(section_cls) -> dict[str, type]:
     """Map non-dataclass field names to their types for a section class."""
+    hints = get_type_hints(section_cls, include_extras=True)
     return {
-        f.name: f.type
+        f.name: hints.get(f.name, f.type)
         for f in fields(section_cls)
-        if not _is_dataclass_type(f.type)
+        if not _is_dataclass_type(hints.get(f.name, f.type))
     }
 
 

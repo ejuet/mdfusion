@@ -20,11 +20,11 @@ import selectors
 import mdfusion.htmlark.htmlark as htmlark
 
 from dataclasses import dataclass, field
-from typing import ClassVar
 import importlib.resources as pkg_resources
 import bs4
 
 from .config_utils import (
+    config_dataclass,
     discover_config_path,
     merge_cli_args_with_config_for,
     parse_known_args_for,
@@ -243,9 +243,8 @@ def bundle_html(input_html: Path, output_html: Path | None = None):
         f.write(bundled_html)
     print(f"Bundled HTML written to {output_html}")
 
-@dataclass
+@config_dataclass("presentation")
 class PresentationParams:
-    __config_section__: ClassVar[str] = "presentation"
     presentation: bool = False  # if True, use reveal.js presentation mode
     footer_text: str | None = ""  # custom footer text for presentations
     animate_all_lines: bool = False  # add reveal.js fragment animation to each line in presentations
@@ -256,9 +255,8 @@ class PresentationParams:
         return
 
 
-@dataclass
+@config_dataclass("mdfusion")
 class RunParams:
-    __config_section__: ClassVar[str] = "mdfusion"
     presentation: PresentationParams = field(default_factory=PresentationParams)
     
     root_dir: Path | None = None  # root directory for Markdown files

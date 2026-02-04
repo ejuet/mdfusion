@@ -8,15 +8,13 @@ import pytest
 from mdfusion import config_utils
 
 
-@dataclass
+@config_utils.config_dataclass("inner")
 class _Inner:
-    __config_section__ = "inner"
     value: int | None = None
 
 
-@dataclass
+@config_utils.config_dataclass("root")
 class _Root:
-    __config_section__ = "root"
     inner: _Inner = field(default_factory=_Inner)
     name: str | None = None
     path: Path | None = None
