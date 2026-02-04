@@ -10,16 +10,19 @@ from simple_parsing import ArgumentParser
 
 @dataclass(frozen=True)
 class _ConfigSection:
+    """Describe a config section discovered from a dataclass tree."""
     name: str
     cls: type
     path: tuple[str, ...]
 
 
 def _is_dataclass_type(tp) -> bool:
+    """Return True if `tp` is a dataclass *type* (not an instance)."""
     return isinstance(tp, type) and is_dataclass(tp)
 
 
 def _is_path_type(tp) -> bool:
+    """Return True if `tp` is `Path` or a typing wrapper that includes `Path`."""
     if tp is Path:
         return True
     origin = get_origin(tp)
@@ -29,6 +32,11 @@ def _is_path_type(tp) -> bool:
 
 
 def _iter_config_sections(root_cls) -> list[_ConfigSection]:
+    """Collect config sections from a root dataclass by walking nested dataclasses.
+
+    Parameters:
+        root_cls: Root dataclass type for the config tree.
+    """
     root_name = getattr(root_cls, "__config_section__", None)
     if not root_name:
         root_name = root_cls.__name__.lower()
@@ -48,6 +56,7 @@ def _iter_config_sections(root_cls) -> list[_ConfigSection]:
 
 
 def _get_section_obj(root, path: tuple[str, ...]):
+    """Return the nested object at `path` from a root dataclass instance."""
     obj = root
     for attr in path:
         obj = getattr(obj, attr)
@@ -55,6 +64,7 @@ def _get_section_obj(root, path: tuple[str, ...]):
 
 
 def _section_field_map(section_cls) -> dict[str, type]:
+    """Map non-dataclass field names to their types for a section class."""
     return {
         f.name: f.type
         for f in fields(section_cls)
@@ -63,6 +73,7 @@ def _section_field_map(section_cls) -> dict[str, type]:
 
 
 def _clear_dataclass_instance(obj) -> None:
+    """Set all fields on a dataclass instance (recursively) to None."""
     for f in fields(type(obj)):
         value = getattr(obj, f.name)
         if is_dataclass(value):
@@ -72,6 +83,7 @@ def _clear_dataclass_instance(obj) -> None:
 
 
 def _make_unset_instance(cls):
+    """Create a dataclass instance with all fields set to None."""
     obj = cls()
     _clear_dataclass_instance(obj)
     return obj
@@ -84,6 +96,14 @@ def discover_config_path(
     default_filename: str = "mdfusion.toml",
     cwd: Path | None = None,
 ) -> Path | None:
+    """Find a config file path from CLI args or a default file in a directory.
+
+    Parameters:
+        argv: Argument list to scan for config flags.
+        flag_names: Flag names that accept a following path value.
+        default_filename: Filename to check in `cwd` (or `Path.cwd()`).
+        cwd: Base directory to look for `default_filename`.
+    """
     args = argv if argv is not None else []
     cfg_path = None
     for i, a in enumerate(args):
@@ -105,6 +125,14 @@ def parse_known_args_for(
     argv: list[str] | None = None,
     parser_factory=ArgumentParser,
 ):
+    """Parse CLI args for a config dataclass, returning parsed params and extra params that do not belong to the dataclass.
+
+    Parameters:
+        root_cls: Root dataclass type to register with the parser.
+        description: Optional parser description.
+        argv: Argument list to parse (defaults to sys.argv).
+        parser_factory: Parser class/factory (defaults to `ArgumentParser`).
+    """
     parser = parser_factory(description=description)
     parser.add_arguments(root_cls, dest="params")
     args, extra = parser.parse_known_args(argv)
@@ -112,7 +140,12 @@ def parse_known_args_for(
 
 
 def load_config_defaults_for(cfg_path: Path | None, *, root_cls):
-    """Load config defaults from TOML file, if present. Returns a dataclass instance."""
+    """Load config defaults from a TOML file into a dataclass instance.
+
+    Parameters:
+        cfg_path: Path to the TOML file (if present/exists).
+        root_cls: Root dataclass type to populate.
+    """
     params = _make_unset_instance(root_cls)
     sections = _iter_config_sections(root_cls)
 
@@ -157,7 +190,14 @@ def merge_cli_args_with_config_for(
     root_cls,
     normalize=None,
 ):
-    """Merge CLI args with config defaults. CLI args take precedence. Arrays are merged."""
+    """Merge CLI args with config defaults, preserving CLI precedence.
+
+    Parameters:
+        cli_args: Parsed CLI dataclass instance to merge into.
+        config_path: Path to the TOML config file (if any).
+        root_cls: Root dataclass type used to build defaults.
+        normalize: Optional function to normalize dataclass instances. e.g., to handle fields of multiple types and coerce them to a single type.
+    """
     config_params = load_config_defaults_for(config_path, root_cls=root_cls)
     if normalize is not None:
         normalize(config_params)
