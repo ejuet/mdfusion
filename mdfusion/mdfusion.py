@@ -23,6 +23,7 @@ import toml as tomllib  # type: ignore
 from dataclasses import dataclass, field
 from simple_parsing import ArgumentParser
 import importlib.resources as pkg_resources
+import bs4
 
 
 def natural_key(s: str):
@@ -249,6 +250,7 @@ class RunParams:
     header_tex: Path | None = None  # path to a user-defined header.tex file (default: ./header.tex)
     presentation: bool = False  # if True, use reveal.js presentation mode
     footer_text: str | None = ""  # custom footer text for presentations
+    animate_all_lines: bool = True  # add reveal.js fragment animation to each line in presentations
     merged_md: Path | None = None  # folder to write merged markdown to. Using a temp folder by default.
     remove_alt_texts: list[str] = field(default_factory=lambda: ["alt text"])  # alt texts to remove from images, comma-separated
     toc: bool = False  # include a table of contents
@@ -358,13 +360,16 @@ def run(params_: "RunParams"):
             
             
             """
-            Create a js object with the custom plugin config
-            So we can read the values from the HTML file/ Reveal plugins
+            Provide a config script tag with data attributes so public JS can read it.
             """
             # TODO allow including html files for this
             # Prepare inline config script
-            config_script = f"<script>window.config = {{ footerText: '{params.footer_text}' }};</script>"
-            
+            config_script = (
+                "<script>"
+                f"window.config = {{ footerText: '{params.footer_text}', animateAllLines: {str(params.animate_all_lines).lower()} }};"
+                "</script>"
+            )
+
             # Inject inline window.config script into <head> in HTML output
             output_file = Path(out_pdf)
             html_content = output_file.read_text(encoding="utf-8")
