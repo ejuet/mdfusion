@@ -397,14 +397,6 @@ def run(params_: "RunParams"):
         if params.merged_md is None:
             shutil.rmtree(temp_dir)
 
-def check_unknown_config_keys(toml_data: dict, sections: dict[str, set[str]]) -> None:
-    """Check for unknown config keys in the provided toml_data dict."""
-    for section, allowed_keys in sections.items():
-        conf = toml_data.get(section, {})
-        unknown_keys = sorted(set(conf.keys()) - allowed_keys)
-        if unknown_keys:
-            raise ValueError(f"Unknown config key(s) in [{section}]: " + ", ".join(unknown_keys))
-
 
 def load_config_defaults(cfg_path: Path | None) -> RunParams:
     """Load config defaults from TOML file, if present. Returns RunParams object."""
@@ -430,6 +422,22 @@ def load_config_defaults(cfg_path: Path | None) -> RunParams:
         runparams_fields = {f.name: f.type for f in fields(RunParams) if f.name != "presentation"}
         presentation_fields = {f.name for f in fields(PresentationParams)}
 
+        allowed_sections = {"mdfusion", "presentation"}
+        unknown_sections = [k for k in toml_data.keys() if k not in allowed_sections]
+        if unknown_sections:
+            unknown_list = ", ".join(sorted(unknown_sections))
+            raise ValueError(f"Unknown config section(s): {unknown_list}")
+
+        unknown_mdfusion = sorted(set(conf.keys()) - set(runparams_fields.keys()))
+        unknown_presentation = sorted(set(presentation_conf.keys()) - set(presentation_fields))
+        if unknown_mdfusion or unknown_presentation:
+            messages = []
+            if unknown_mdfusion:
+                messages.append("[mdfusion]: " + ", ".join(unknown_mdfusion))
+            if unknown_presentation:
+                messages.append("[presentation]: " + ", ".join(unknown_presentation))
+            raise ValueError("Unknown config key(s): " + "; ".join(messages))
+
         for k, v in conf.items():
             if k in runparams_fields:
                 typ = runparams_fields[k]
@@ -441,17 +449,6 @@ def load_config_defaults(cfg_path: Path | None) -> RunParams:
         for k, v in presentation_conf.items():
             if k in presentation_fields:
                 setattr(params.presentation, k, v)
-                
-        # Check for unknown config keys
-        allowed_keys = {
-            "mdfusion": set(runparams_fields.keys()),
-            "mdfusion.presentation": presentation_fields,
-        }
-        check_unknown_config_keys(toml_data, allowed_keys)
-        
-        
-        conf = toml_data.get("mdfusion", {})
-        presentation_conf = toml_data.get("presentation", {})
 
     # Normalize pandoc_args without triggering other __post_init__ side effects.
     if isinstance(params.pandoc_args, str):
