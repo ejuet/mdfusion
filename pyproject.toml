@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mdfusion"
-version = "0.2.8"
+version = "0.3.0"
 description = "Merge Markdown files into a single PDF or HTML presentation with Pandoc + XeLaTeX"
 readme = "README.md"
 authors = [{ name = "ejuet" }]
@@ -16,6 +16,7 @@ dependencies = [
     # for htmlark:
     "beautifulsoup4",
     "requests",
+    "playwright",
 ]
 
 [project.scripts]

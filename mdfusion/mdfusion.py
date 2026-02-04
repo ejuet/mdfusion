@@ -22,6 +22,7 @@ import mdfusion.htmlark.htmlark as htmlark
 from dataclasses import dataclass, field
 import importlib.resources as pkg_resources
 import bs4
+from playwright.sync_api import sync_playwright
 
 from .config_utils import (
     config_dataclass,
@@ -197,12 +198,6 @@ def wait_for_render_stable(page, *, timeout: int = 30_000) -> None:
 
 def html_to_pdf(input_html: Path, chromium_path: str | None = None, output_pdf: Path | None = None):
     """Convert HTML to PDF using Playwright."""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        print("Error: Playwright is required for PDF conversion.", file=sys.stderr)
-        sys.exit(1)
-
     if output_pdf is None:
         output_pdf = input_html.with_suffix(".pdf")
 
@@ -211,12 +206,19 @@ def html_to_pdf(input_html: Path, chromium_path: str | None = None, output_pdf: 
         if chromium_path and os.path.isfile(chromium_path):
             browser = p.chromium.launch(executable_path=chromium_path)
         else:
-            browser = p.chromium.launch()
+            try:
+                browser = p.chromium.launch()
+            except Exception as e:
+                print("Error launching Chromium with Playwright:", e)
+                print("Specify a chromium instance or make sure Playwright browsers are installed by running:")
+                print("    playwright install")
+                sys.exit(1)
         page = browser.new_page()
         url = "file://" + str(input_html.resolve())
         page.goto(url + "?print-pdf", wait_until="networkidle")
         page.locator(".reveal.ready").wait_for()
         wait_for_render_stable(page)
+        time.sleep(1)
         page.pdf(path=output_pdf, prefer_css_page_size=True)
         browser.close()
         
