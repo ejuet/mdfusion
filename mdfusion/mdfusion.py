@@ -20,7 +20,8 @@ import selectors
 import mdfusion.htmlark.htmlark as htmlark
 
 import toml as tomllib  # type: ignore
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
+from typing import ClassVar, get_args, get_origin
 from simple_parsing import ArgumentParser
 import importlib.resources as pkg_resources
 import bs4
@@ -240,6 +241,7 @@ def bundle_html(input_html: Path, output_html: Path | None = None):
 
 @dataclass
 class PresentationParams:
+    __config_section__: ClassVar[str] = "presentation"
     presentation: bool = False  # if True, use reveal.js presentation mode
     footer_text: str | None = ""  # custom footer text for presentations
     animate_all_lines: bool = False  # add reveal.js fragment animation to each line in presentations
@@ -252,6 +254,7 @@ class PresentationParams:
 
 @dataclass
 class RunParams:
+    __config_section__: ClassVar[str] = "mdfusion"
     presentation: PresentationParams = field(default_factory=PresentationParams)
     
     root_dir: Path | None = None  # root directory for Markdown files
@@ -277,6 +280,85 @@ class RunParams:
 
         if self.verbose:
             self.pandoc_args.append("--verbose")
+
+
+@dataclass(frozen=True)
+class _ConfigSection:
+    name: str
+    cls: type
+    path: tuple[str, ...]
+
+
+def _is_dataclass_type(tp) -> bool:
+    return isinstance(tp, type) and is_dataclass(tp)
+
+
+def _is_path_type(tp) -> bool:
+    if tp is Path:
+        return True
+    origin = get_origin(tp)
+    if origin is None:
+        return False
+    return Path in get_args(tp)
+
+
+def _iter_config_sections(root_cls) -> list[_ConfigSection]:
+    root_name = getattr(root_cls, "__config_section__", "mdfusion")
+    sections: list[_ConfigSection] = [_ConfigSection(root_name, root_cls, ())]
+
+    def walk(cls, path: tuple[str, ...]) -> None:
+        for f in fields(cls):
+            if _is_dataclass_type(f.type):
+                nested_cls = f.type
+                section_name = getattr(nested_cls, "__config_section__", f.name)
+                nested_path = path + (f.name,)
+                sections.append(_ConfigSection(section_name, nested_cls, nested_path))
+                walk(nested_cls, nested_path)
+
+    walk(root_cls, ())
+    return sections
+
+
+def _get_section_obj(root, path: tuple[str, ...]):
+    obj = root
+    for attr in path:
+        obj = getattr(obj, attr)
+    return obj
+
+
+def _section_field_map(section_cls) -> dict[str, type]:
+    return {
+        f.name: f.type
+        for f in fields(section_cls)
+        if not _is_dataclass_type(f.type)
+    }
+
+
+def _clear_dataclass_instance(obj) -> None:
+    for f in fields(type(obj)):
+        value = getattr(obj, f.name)
+        if is_dataclass(value):
+            _clear_dataclass_instance(value)
+        else:
+            setattr(obj, f.name, None)
+
+
+def _make_unset_instance(cls):
+    obj = cls()
+    _clear_dataclass_instance(obj)
+    return obj
+
+
+def _normalize_params(params: RunParams) -> None:
+    if isinstance(params.pandoc_args, str):
+        params.pandoc_args = params.pandoc_args.split()
+    elif params.pandoc_args is None:
+        params.pandoc_args = []
+    elif not isinstance(params.pandoc_args, list):
+        params.pandoc_args = list(params.pandoc_args)
+
+    if params.verbose and "--verbose" not in params.pandoc_args:
+        params.pandoc_args.append("--verbose")
 
 
 def run(params_: "RunParams"):
@@ -400,85 +482,58 @@ def run(params_: "RunParams"):
 
 def load_config_defaults(cfg_path: Path | None) -> RunParams:
     """Load config defaults from TOML file, if present. Returns RunParams object."""
-    params = RunParams()
-    from dataclasses import fields
-    # Start with all fields unset so only explicit config values are applied.
-    for f in fields(RunParams):
-        if f.name == "presentation":
-            continue
-        setattr(params, f.name, None)
-    # Ensure presentation is always a PresentationParams instance, then clear its fields.
-    if not isinstance(params.presentation, PresentationParams):
-        params.presentation = PresentationParams()
-    params.pandoc_args = []
-    for f in fields(PresentationParams):
-        setattr(params.presentation, f.name, None)
+    params = _make_unset_instance(RunParams)
+    sections = _iter_config_sections(RunParams)
 
     if cfg_path and cfg_path.is_file():
         with cfg_path.open("r", encoding="utf-8") as f:
             toml_data = tomllib.load(f)
-        conf = toml_data.get("mdfusion", {})
-        presentation_conf = toml_data.get("presentation", {})
-        runparams_fields = {f.name: f.type for f in fields(RunParams) if f.name != "presentation"}
-        presentation_fields = {f.name for f in fields(PresentationParams)}
 
-        allowed_sections = {"mdfusion", "presentation"}
+        allowed_sections = {s.name for s in sections}
         unknown_sections = [k for k in toml_data.keys() if k not in allowed_sections]
         if unknown_sections:
             unknown_list = ", ".join(sorted(unknown_sections))
             raise ValueError(f"Unknown config section(s): {unknown_list}")
 
-        unknown_mdfusion = sorted(set(conf.keys()) - set(runparams_fields.keys()))
-        unknown_presentation = sorted(set(presentation_conf.keys()) - set(presentation_fields))
-        if unknown_mdfusion or unknown_presentation:
-            messages = []
-            if unknown_mdfusion:
-                messages.append("[mdfusion]: " + ", ".join(unknown_mdfusion))
-            if unknown_presentation:
-                messages.append("[presentation]: " + ", ".join(unknown_presentation))
-            raise ValueError("Unknown config key(s): " + "; ".join(messages))
-
-        for k, v in conf.items():
-            if k in runparams_fields:
-                typ = runparams_fields[k]
-                # Convert to Path if needed
-                if typ == Path or typ == (Path | None):
-                    setattr(params, k, Path(v))
+        unknown_keys: list[str] = []
+        for section in sections:
+            section_data = toml_data.get(section.name, {})
+            if not section_data:
+                continue
+            field_map = _section_field_map(section.cls)
+            extra = sorted(set(section_data.keys()) - set(field_map.keys()))
+            if extra:
+                unknown_keys.append(f"[{section.name}]: " + ", ".join(extra))
+                continue
+            target = _get_section_obj(params, section.path)
+            for k, v in section_data.items():
+                typ = field_map[k]
+                if _is_path_type(typ) and v is not None:
+                    setattr(target, k, Path(v))
                 else:
-                    setattr(params, k, v)
-        for k, v in presentation_conf.items():
-            if k in presentation_fields:
-                setattr(params.presentation, k, v)
+                    setattr(target, k, v)
 
-    # Normalize pandoc_args without triggering other __post_init__ side effects.
-    if isinstance(params.pandoc_args, str):
-        params.pandoc_args = params.pandoc_args.split()
-    elif params.pandoc_args is None:
-        params.pandoc_args = []
-    elif not isinstance(params.pandoc_args, list):
-        params.pandoc_args = list(params.pandoc_args)
+        if unknown_keys:
+            raise ValueError("Unknown config key(s): " + "; ".join(unknown_keys))
 
     return params
 
 def merge_cli_args_with_config(cli_args: RunParams, config_path: Path | None) -> RunParams:
     """Merge CLI args with config defaults. CLI args take precedence. Arrays are merged."""
     config_params = load_config_defaults(config_path)
+    _normalize_params(config_params)
+    _normalize_params(cli_args)
     default_params = RunParams()
-    from dataclasses import fields
 
-    def merge_section(section_name: str | None, section_cls, skip_fields: set[str] | None = None):
-        if skip_fields is None:
-            skip_fields = set()
-        config_section = config_params if section_name in (None, "") else getattr(config_params, section_name)
-        cli_section = cli_args if section_name in (None, "") else getattr(cli_args, section_name)
-        default_section = default_params if section_name in (None, "") else getattr(default_params, section_name)
-        for f in fields(section_cls):
+    def merge_section(cli_section, config_section, default_section) -> None:
+        for f in fields(type(cli_section)):
             k = f.name
-            if k in skip_fields:
-                continue
-            v = getattr(config_section, k, None)
             current = getattr(cli_section, k, None)
+            v = getattr(config_section, k, None)
             default = getattr(default_section, k, None)
+            if is_dataclass(current):
+                merge_section(current, v, default)
+                continue
             # If the field is a list, merge arrays (config first, then CLI)
             if isinstance(v, list):
                 if current is None or current == [] or current == default:
@@ -490,11 +545,8 @@ def merge_cli_args_with_config(cli_args: RunParams, config_path: Path | None) ->
                 if v is not None and (current is None or current == "" or current == default):
                     setattr(cli_section, k, v)
 
-    merge_section("presentation", PresentationParams)
-    merge_section(None, RunParams, skip_fields={"presentation"})
-
-    if cli_args.verbose and "--verbose" not in cli_args.pandoc_args:
-        cli_args.pandoc_args.append("--verbose")
+    merge_section(cli_args, config_params, default_params)
+    _normalize_params(cli_args)
 
     # Post-merge: inject presentation-specific pandoc args if needed
     if cli_args.presentation.presentation:
