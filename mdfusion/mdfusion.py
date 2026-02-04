@@ -169,6 +169,36 @@ def run_pandoc_with_spinner(cmd, out_pdf):
     except subprocess.CalledProcessError as e:
         handle_pandoc_error(e, cmd)
 
+def wait_for_render_stable(page, *, timeout: int = 30_000) -> None:
+    # 1) DOM + subresources
+    page.wait_for_load_state("domcontentloaded", timeout=timeout)
+    page.wait_for_load_state("load", timeout=timeout)
+
+    # 2) Fonts (common reason PDFs look “unstyled” or shift)
+    page.wait_for_function(
+        """() => !document.fonts || document.fonts.status === 'loaded'""",
+        timeout=timeout,
+    )
+    # If fonts API exists, wait for the promise too (more strict)
+    page.evaluate("""() => document.fonts ? document.fonts.ready : Promise.resolve()""")
+
+    # 3) Give the browser a couple frames to flush style/layout/paint
+    page.evaluate(
+        """() => new Promise(resolve => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+        })"""
+    )
+
+    # 4) Optional: ensure there are no pending CSS animations/transitions
+    # (Remove this if your page *intentionally* animates forever.)
+    page.wait_for_function(
+        """() => {
+            const anims = document.getAnimations ? document.getAnimations() : [];
+            return anims.every(a => a.playState === 'finished' || a.playState === 'idle');
+        }""",
+        timeout=timeout,
+    )
+
 def html_to_pdf(input_html: Path, chromium_path: str | None = None, output_pdf: Path | None = None):
     """Convert HTML to PDF using Playwright."""
     try:
@@ -190,6 +220,7 @@ def html_to_pdf(input_html: Path, chromium_path: str | None = None, output_pdf: 
         url = "file://" + str(input_html.resolve())
         page.goto(url + "?print-pdf", wait_until="networkidle")
         page.locator(".reveal.ready").wait_for()
+        wait_for_render_stable(page)
         page.pdf(path=output_pdf, prefer_css_page_size=True)
         browser.close()
         
