@@ -6,8 +6,29 @@
     return Boolean(window.config && window.config.animateAllLines);
   }
 
+  function hasLineNumberFragments(el) {
+    if (!el || el.tagName !== "PRE") {
+      return false;
+    }
+
+    var code = el.querySelector("code[data-line-numbers]");
+    if (!code) {
+      return false;
+    }
+
+    var lineNumbers = code.getAttribute("data-line-numbers") || "";
+    return lineNumbers.indexOf("|") !== -1;
+  }
+
   function shouldSkipFragment(el) {
-    return el.closest("aside.notes") || el.classList.contains("fragment")
+    return (
+      el.closest("aside.notes") ||
+      el.classList.contains("fragment") ||
+      el.closest(".fragment") ||
+      el.hasAttribute("data-fragment-index") ||
+      el.closest("[data-fragment-index]") ||
+      hasLineNumberFragments(el)
+    );
   }
 
   // Add fragment animations to supported elements.
