@@ -48,38 +48,50 @@ pip install .
 ## Usage
 
 ```sh
-mdfusion ROOT_DIR [OPTIONS]
+mdfusion [OPTIONS]
 ```
+
+You can also pass extra Pandoc arguments at the end of the command; any unknown flags are forwarded to Pandoc.
 
 ### Common options
 
-- `-o, --output FILE`      Output filename (default: `<root_dir>.pdf` or `.html` for presentations)
-- `--no-toc`               Omit table of contents
-- `--title-page`           Include a title page (PDF only)
+- `--root_dir DIR`         Root directory for Markdown files (default: current directory, or config file directory)
+- `--output FILE`          Output filename (default: `<root_dir>.pdf` or `.html` for presentations)
+- `--toc`                  Include table of contents (use `--notoc` to disable)
+- `--title_page`           Include a title page (PDF only)
 - `--title TITLE`          Set title for title page (default: directory name)
 - `--author AUTHOR`        Set author for title page (default: OS user)
-- `--pandoc-args ARGS`     Extra Pandoc arguments (whitespace-separated)
-- `-c, --config FILE`      Path to a `mdfusion.toml` config file (default: `mdfusion.toml` in the current directory)
-- `--presentation`         Output as a reveal.js HTML presentation (not PDF)
-- `--footer-text TEXT`     Custom footer for presentations
+- `--pandoc_args ARGS`     Extra Pandoc arguments (whitespace-separated)
+- `--config_path FILE`     Path to a `mdfusion.toml` config file (default: `mdfusion.toml` in the current directory)
+- `--header_tex PATH`      Custom LaTeX header to include (defaults to `./header.tex` if present)
+- `--merged_md DIR`        Write merged Markdown to this directory (uses a temp dir by default)
+- `--remove_alt_texts TXT` Comma-separated list of image alt texts to strip (default: `alt text`)
+- `--verbose`              Enable verbose Pandoc output
+
+### Presentation options
+
+- `--presentation`         Output as a reveal.js HTML presentation (also converts to PDF)
+- `--footer_text TEXT`     Custom footer for presentations
+- `--animate_all_lines`    Add reveal.js fragment animation to each line
+- `--chromium_path PATH`   Path to Chromium for HTML→PDF conversion (default: `/usr/bin/chromium`)
 
 ### Example: Merge docs/ into a PDF with a title page
 
 ```sh
-mdfusion --title-page --title "My Book" --author "Jane Doe" docs/
+mdfusion --root_dir docs --title_page --title "My Book" --author "Jane Doe"
 ```
 
 ### Example: Create a reveal.js HTML presentation
 
 ```sh
-mdfusion --presentation --title "My Talk" --author "Speaker" --footer-text "My Conference 2025" slides/
+mdfusion --root_dir slides --presentation --title "My Talk" --author "Speaker" --footer_text "My Conference 2025"
 ```
 
 ---
 
 ## Configuration file
 
-You can create a `mdfusion.toml` file in your project directory to avoid long command lines. The `[mdfusion]` section supports all the same options as the CLI.
+You can create a `mdfusion.toml` file in your project directory to avoid long command lines. The `[mdfusion]` section supports all the same options as the CLI. Presentation-only settings live under `[presentation]` (these can also remain under `[mdfusion]` for backward compatibility).
 
 ### Example: Normal document (PDF)
 
@@ -87,7 +99,7 @@ You can create a `mdfusion.toml` file in your project directory to avoid long co
 [mdfusion]
 root_dir = "docs"
 output = "my-book.pdf"
-no_toc = false
+toc = true
 title_page = true
 title = "My Book"
 author = "Jane Doe"
@@ -103,10 +115,14 @@ root_dir = "slides"
 output = "my-presentation.html"
 title = "My Talk"
 author = "Speaker"
-presentation = true
-footer_text = "My Conference 2025"
 pandoc_args = ["--slide-level", "6", "--number-sections", "-V", "transition=fade", "-c", "custom.css"]
 # You can add more reveal.js or pandoc options as needed with ["-V", "option=value"]
+
+[presentation]
+presentation = true
+footer_text = "My Presentation 2025"
+animate_all_lines = false
+# chromium_path = "/usr/bin/chromium"
 ```
 
 Then just run:
