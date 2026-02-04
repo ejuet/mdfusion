@@ -239,7 +239,21 @@ def bundle_html(input_html: Path, output_html: Path | None = None):
     print(f"Bundled HTML written to {output_html}")
 
 @dataclass
+class PresentationParams:
+    presentation: bool = False  # if True, use reveal.js presentation mode
+    footer_text: str | None = ""  # custom footer text for presentations
+    animate_all_lines: bool = False  # add reveal.js fragment animation to each line in presentations
+    chromium_path: str = "/usr/bin/chromium"  # path to chromium executable for HTML to PDF conversion. Optional, will use playwright's chromium if not provided. default: /usr/bin/chromium
+
+    # Add help strings for simple-parsing
+    def __post_init__(self):
+        return
+
+
+@dataclass
 class RunParams:
+    presentation: PresentationParams = field(default_factory=PresentationParams)
+    
     root_dir: Path | None = None  # root directory for Markdown files
     output: str | None = None  # output PDF filename (defaults to <root_dir>.pdf)
     title_page: bool = False  # include a title page
@@ -248,14 +262,10 @@ class RunParams:
     pandoc_args: list[str] | str = field(default_factory=list)  # extra pandoc arguments, whitespace-separated
     config_path: Path | None = None  # path to a mdfusion.toml TOML config file
     header_tex: Path | None = None  # path to a user-defined header.tex file (default: ./header.tex)
-    presentation: bool = False  # if True, use reveal.js presentation mode
-    footer_text: str | None = ""  # custom footer text for presentations
-    animate_all_lines: bool = False  # add reveal.js fragment animation to each line in presentations
     merged_md: Path | None = None  # folder to write merged markdown to. Using a temp folder by default.
     remove_alt_texts: list[str] = field(default_factory=lambda: ["alt text"])  # alt texts to remove from images, comma-separated
     toc: bool = False  # include a table of contents
     verbose: bool = False  # enable verbose output for pandoc
-    chromium_path: str = "/usr/bin/chromium"  # path to chromium executable for HTML to PDF conversion. Optional, will use playwright's chromium if not provided. default: /usr/bin/chromium
 
     # Add help strings for simple-parsing
     def __post_init__(self):
@@ -265,23 +275,6 @@ class RunParams:
         elif not isinstance(self.pandoc_args, list):
             self.pandoc_args = list(self.pandoc_args)
 
-        if self.presentation:
-            if self.output and not self.output.lower().endswith(".html"):
-                raise ValueError("Output file for presentations must be HTML, got: " + self.output)
-
-            header_path = pkg_resources.files("mdfusion.reveal").joinpath("header.html").__fspath__()
-            footer_path = pkg_resources.files("mdfusion.reveal").joinpath("footer.html").__fspath__()
-            self.pandoc_args.extend(
-                [
-                    "-t",
-                    "revealjs",
-                    "-V",
-                    "revealjs-url=https://cdn.jsdelivr.net/npm/reveal.js@4",
-                    "-H", header_path,
-                    "-A", footer_path
-                ]
-            )
-        
         if self.verbose:
             self.pandoc_args.append("--verbose")
 
@@ -327,7 +320,7 @@ def run(params_: "RunParams"):
         resource_dirs = {str(p.parent) for p in md_files}
         resource_path = ":".join(sorted(resource_dirs))
 
-        default_output = str(params.root_dir / f"{params.root_dir.name}.pdf" if not params.presentation else params.root_dir / f"{params.root_dir.name}.html")
+        default_output = str(params.root_dir / f"{params.root_dir.name}.pdf" if not params.presentation.presentation else params.root_dir / f"{params.root_dir.name}.html")
         out_pdf = params.output or default_output
         cmd = [
             "pandoc",
@@ -366,7 +359,7 @@ def run(params_: "RunParams"):
             # Prepare inline config script
             config_script = (
                 "<script>"
-                f"window.config = {{ footerText: '{params.footer_text}', animateAllLines: {str(params.animate_all_lines).lower()} }};"
+                f"window.config = {{ footerText: '{params.presentation.footer_text}', animateAllLines: {str(params.presentation.animate_all_lines).lower()} }};"
                 "</script>"
             )
 
@@ -394,8 +387,8 @@ def run(params_: "RunParams"):
             bundle_html(temp_output, final_output)
                 
         # if output is html presentation, convert to pdf as well
-        if params.presentation:
-            html_to_pdf(final_output, chromium_path=params.chromium_path)
+        if params.presentation.presentation:
+            html_to_pdf(final_output, chromium_path=params.presentation.chromium_path)
             print(f"Converted HTML presentation to PDF: {final_output.with_suffix('.pdf')}")
     except Exception as e:
         print(f"Error during processing: {e}", file=sys.stderr)
@@ -411,14 +404,28 @@ def load_config_defaults(cfg_path: Path | None) -> RunParams:
     from dataclasses import fields
     # Start with all fields unset so only explicit config values are applied.
     for f in fields(RunParams):
+        if f.name == "presentation":
+            continue
         setattr(params, f.name, None)
+    # Ensure presentation is always a PresentationParams instance, then clear its fields.
+    if not isinstance(params.presentation, PresentationParams):
+        params.presentation = PresentationParams()
     params.pandoc_args = []
+    for f in fields(PresentationParams):
+        setattr(params.presentation, f.name, None)
 
     if cfg_path and cfg_path.is_file():
         with cfg_path.open("r", encoding="utf-8") as f:
             toml_data = tomllib.load(f)
         conf = toml_data.get("mdfusion", {})
-        runparams_fields = {f.name: f.type for f in fields(RunParams)}
+        presentation_conf = toml_data.get("presentation", {})
+        runparams_fields = {f.name: f.type for f in fields(RunParams) if f.name != "presentation"}
+        presentation_fields = {f.name for f in fields(PresentationParams)}
+
+        # Allow presentation fields to live under [mdfusion] for backward compatibility.
+        for k in list(conf.keys()):
+            if k in presentation_fields:
+                presentation_conf.setdefault(k, conf.pop(k))
         for k, v in conf.items():
             if k in runparams_fields:
                 typ = runparams_fields[k]
@@ -427,6 +434,9 @@ def load_config_defaults(cfg_path: Path | None) -> RunParams:
                     setattr(params, k, Path(v))
                 else:
                     setattr(params, k, v)
+        for k, v in presentation_conf.items():
+            if k in presentation_fields:
+                setattr(params.presentation, k, v)
 
     # Normalize pandoc_args without triggering other __post_init__ side effects.
     if isinstance(params.pandoc_args, str):
@@ -443,21 +453,54 @@ def merge_cli_args_with_config(cli_args: RunParams, config_path: Path | None) ->
     config_params = load_config_defaults(config_path)
     default_params = RunParams()
     from dataclasses import fields
-    for f in fields(RunParams):
-        k = f.name
-        v = getattr(config_params, k, None)
-        current = getattr(cli_args, k, None)
-        default = getattr(default_params, k, None)
-        # If the field is a list, merge arrays (config first, then CLI)
-        if isinstance(v, list):
-            if current is None or current == [] or current == default:
-                setattr(cli_args, k, v)
+
+    def merge_section(section_name: str | None, section_cls, skip_fields: set[str] | None = None):
+        if skip_fields is None:
+            skip_fields = set()
+        config_section = config_params if section_name in (None, "") else getattr(config_params, section_name)
+        cli_section = cli_args if section_name in (None, "") else getattr(cli_args, section_name)
+        default_section = default_params if section_name in (None, "") else getattr(default_params, section_name)
+        for f in fields(section_cls):
+            k = f.name
+            if k in skip_fields:
+                continue
+            v = getattr(config_section, k, None)
+            current = getattr(cli_section, k, None)
+            default = getattr(default_section, k, None)
+            # If the field is a list, merge arrays (config first, then CLI)
+            if isinstance(v, list):
+                if current is None or current == [] or current == default:
+                    setattr(cli_section, k, v)
+                else:
+                    merged = v + [item for item in current if item not in v]
+                    setattr(cli_section, k, merged)
             else:
-                merged = v + [item for item in current if item not in v]
-                setattr(cli_args, k, merged)
-        else:
-            if v is not None and (current is None or current == "" or current == default):
-                setattr(cli_args, k, v)
+                if v is not None and (current is None or current == "" or current == default):
+                    setattr(cli_section, k, v)
+
+    merge_section("presentation", PresentationParams)
+    merge_section(None, RunParams, skip_fields={"presentation"})
+
+    if cli_args.verbose and "--verbose" not in cli_args.pandoc_args:
+        cli_args.pandoc_args.append("--verbose")
+
+    # Post-merge: inject presentation-specific pandoc args if needed
+    if cli_args.presentation.presentation:
+        if cli_args.output and not cli_args.output.lower().endswith(".html"):
+            raise ValueError("Output file for presentations must be HTML, got: " + cli_args.output)
+
+        header_path = pkg_resources.files("mdfusion.reveal").joinpath("header.html").__fspath__()
+        footer_path = pkg_resources.files("mdfusion.reveal").joinpath("footer.html").__fspath__()
+        cli_args.pandoc_args.extend(
+            [
+                "-t",
+                "revealjs",
+                "-V",
+                "revealjs-url=https://cdn.jsdelivr.net/npm/reveal.js@4",
+                "-H", header_path,
+                "-A", footer_path
+            ]
+        )
     return cli_args
 
 
@@ -497,11 +540,13 @@ def main():
         )
     )
     parser.add_arguments(RunParams, dest="params")
+    # parser.add_arguments(PresentationParams, dest="presentation")
 
     # Parse known args, allow extra pandoc args
     args, extra = parser.parse_known_args()
 
     params = args.params
+    # params.presentation = args.presentation
     params.config_path = cfg_path
 
     # Handle extra pandoc args

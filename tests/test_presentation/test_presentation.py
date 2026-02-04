@@ -14,8 +14,10 @@ def test_presentation():
         title_page=False,
         title="Snails: The Ultimate Guide",
         author="From a loving snail fan",
-        presentation=True,
-        footer_text="A fun presentation about snails",
+        presentation=mdfusion.PresentationParams(
+            presentation=True,
+            footer_text="A fun presentation about snails",
+        ),
         pandoc_args=["--slide-level", "6",
                     "--number-sections",
                     "-V", 'transition=fade',
