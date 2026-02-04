@@ -408,11 +408,16 @@ def run(params_: "RunParams"):
 def load_config_defaults(cfg_path: Path | None) -> RunParams:
     """Load config defaults from TOML file, if present. Returns RunParams object."""
     params = RunParams()
+    from dataclasses import fields
+    # Start with all fields unset so only explicit config values are applied.
+    for f in fields(RunParams):
+        setattr(params, f.name, None)
+    params.pandoc_args = []
+
     if cfg_path and cfg_path.is_file():
         with cfg_path.open("r", encoding="utf-8") as f:
             toml_data = tomllib.load(f)
         conf = toml_data.get("mdfusion", {})
-        from dataclasses import fields
         runparams_fields = {f.name: f.type for f in fields(RunParams)}
         for k, v in conf.items():
             if k in runparams_fields:
@@ -422,27 +427,36 @@ def load_config_defaults(cfg_path: Path | None) -> RunParams:
                     setattr(params, k, Path(v))
                 else:
                     setattr(params, k, v)
-                    
-    params.__post_init__()  # Ensure pandoc_args is a list
+
+    # Normalize pandoc_args without triggering other __post_init__ side effects.
+    if isinstance(params.pandoc_args, str):
+        params.pandoc_args = params.pandoc_args.split()
+    elif params.pandoc_args is None:
+        params.pandoc_args = []
+    elif not isinstance(params.pandoc_args, list):
+        params.pandoc_args = list(params.pandoc_args)
+
     return params
 
 def merge_cli_args_with_config(cli_args: RunParams, config_path: Path | None) -> RunParams:
     """Merge CLI args with config defaults. CLI args take precedence. Arrays are merged."""
     config_params = load_config_defaults(config_path)
+    default_params = RunParams()
     from dataclasses import fields
     for f in fields(RunParams):
         k = f.name
         v = getattr(config_params, k, None)
         current = getattr(cli_args, k, None)
+        default = getattr(default_params, k, None)
         # If the field is a list, merge arrays (config first, then CLI)
         if isinstance(v, list):
-            if current is None or current == []:
+            if current is None or current == [] or current == default:
                 setattr(cli_args, k, v)
             else:
                 merged = v + [item for item in current if item not in v]
                 setattr(cli_args, k, merged)
         else:
-            if current in (None, False, [], ""):
+            if v is not None and (current is None or current == "" or current == default):
                 setattr(cli_args, k, v)
     return cli_args
 
