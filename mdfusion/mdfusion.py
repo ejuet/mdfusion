@@ -106,7 +106,7 @@ def merge_markdown(
                 alt, link = m.groups()
                 if link.startswith("http://") or link.startswith("https://"):
                     return f"![{alt}]({link})"  # leave unchanged
-                return f"![{alt}]({(md.parent/ link).resolve()})"
+                return f"![{alt}]({(md.parent / link).resolve()})"
 
             # remove alt text if specified
             def fix_alt(m):
@@ -114,6 +114,7 @@ def merge_markdown(
                 alt_text = "" if alt in remove_alt else alt
                 fixed = f"![{alt_text}]({link})"
                 return fixed
+
             text = IMAGE_RE.sub(fix_alt, text)
             merged_text = IMAGE_RE.sub(fix_link, text)
 
@@ -134,6 +135,7 @@ def merge_markdown(
             merged_line_number += len(merged_lines) + 2
 
     return source_spans
+
 
 def run_pandoc_with_spinner(
     cmd, out_pdf, source_spans: list[SourceLineSpan] | None = None
@@ -181,7 +183,10 @@ def run_pandoc_with_spinner(
             time.sleep(0.05)
 
         # drain remaining output
-        for stream, buffer in ((proc.stdout, stdout_lines), (proc.stderr, stderr_lines)):
+        for stream, buffer in (
+            (proc.stdout, stdout_lines),
+            (proc.stderr, stderr_lines),
+        ):
             for line in stream:
                 buffer.append(line)
                 print(line, end="")
@@ -200,6 +205,7 @@ def run_pandoc_with_spinner(
 
     except subprocess.CalledProcessError as e:
         handle_pandoc_error(e, cmd, source_spans)
+
 
 def wait_for_render_stable(page, *, timeout: int = 30_000) -> None:
     # DOM + subresources
@@ -221,7 +227,10 @@ def wait_for_render_stable(page, *, timeout: int = 30_000) -> None:
         })"""
     )
 
-def html_to_pdf(input_html: Path, chromium_path: str | None = None, output_pdf: Path | None = None):
+
+def html_to_pdf(
+    input_html: Path, chromium_path: str | None = None, output_pdf: Path | None = None
+):
     """Convert HTML to PDF using Playwright."""
     if output_pdf is None:
         output_pdf = input_html.with_suffix(".pdf")
@@ -235,7 +244,9 @@ def html_to_pdf(input_html: Path, chromium_path: str | None = None, output_pdf: 
                 browser = p.chromium.launch()
             except Exception as e:
                 print("Error launching Chromium with Playwright:", e)
-                print("Specify a chromium instance or make sure Playwright browsers are installed by running:")
+                print(
+                    "Specify a chromium instance or make sure Playwright browsers are installed by running:"
+                )
                 print("    playwright install")
                 sys.exit(1)
         page = browser.new_page()
@@ -246,10 +257,11 @@ def html_to_pdf(input_html: Path, chromium_path: str | None = None, output_pdf: 
         time.sleep(1)
         page.pdf(path=output_pdf, prefer_css_page_size=True)
         browser.close()
-        
+
+
 def bundle_html(input_html: Path, output_html: Path | None = None):
     """Bundle HTML with htmlark."""
-        
+
     old_cwd = os.getcwd()
     os.chdir(input_html.parent)
 
@@ -258,23 +270,26 @@ def bundle_html(input_html: Path, output_html: Path | None = None):
         ignore_errors=False,
         ignore_images=False,
         ignore_css=False,
-        ignore_js=False
+        ignore_js=False,
     )
-    
+
     os.chdir(old_cwd)
-    
+
     if output_html is None:
         output_html = input_html
-    
+
     with open(output_html, "w", encoding="utf-8") as f:
         f.write(bundled_html)
     print(f"Bundled HTML written to {output_html}")
+
 
 @config_dataclass("presentation")
 class PresentationParams:
     presentation: bool = False  # if True, use reveal.js presentation mode
     footer_text: str | None = ""  # custom footer text for presentations
-    animate_all_lines: bool = False  # add reveal.js fragment animation to each line in presentations
+    animate_all_lines: bool = (
+        False  # add reveal.js fragment animation to each line in presentations
+    )
     chromium_path: str = "/usr/bin/chromium"  # path to chromium executable for HTML to PDF conversion. Optional, will use playwright's chromium if not provided. default: /usr/bin/chromium
 
     # Add help strings for simple-parsing
@@ -285,17 +300,25 @@ class PresentationParams:
 @config_dataclass("mdfusion")
 class RunParams:
     presentation: PresentationParams = field(default_factory=PresentationParams)
-    
+
     root_dir: Path | None = None  # root directory for Markdown files
     output: str | None = None  # output PDF filename (defaults to <root_dir>.pdf)
     title_page: bool = False  # include a title page
     title: str | None = None  # title for title page (defaults to dirname)
     author: str | None = None  # author for title page (defaults to OS user)
-    pandoc_args: list[str] | str = field(default_factory=list)  # extra pandoc arguments, whitespace-separated
+    pandoc_args: list[str] | str = field(
+        default_factory=list
+    )  # extra pandoc arguments, whitespace-separated
     config_path: Path | None = None  # path to a mdfusion.toml TOML config file
-    header_tex: Path | None = None  # path to a user-defined header.tex file (default: ./header.tex)
-    merged_md: Path | None = None  # folder to write merged markdown to. Using a temp folder by default.
-    remove_alt_texts: list[str] = field(default_factory=lambda: ["alt text"])  # alt texts to remove from images, comma-separated
+    header_tex: Path | None = (
+        None  # path to a user-defined header.tex file (default: ./header.tex)
+    )
+    merged_md: Path | None = (
+        None  # folder to write merged markdown to. Using a temp folder by default.
+    )
+    remove_alt_texts: list[str] = field(
+        default_factory=lambda: ["alt text"]
+    )  # alt texts to remove from images, comma-separated
     toc: bool = False  # include a table of contents
     verbose: bool = False  # enable verbose output for pandoc
 
@@ -327,10 +350,16 @@ def _apply_presentation_pandoc_args(params: RunParams) -> None:
     if not params.presentation.presentation:
         return
     if params.output and not params.output.lower().endswith(".html"):
-        raise ValueError("Output file for presentations must be HTML, got: " + params.output)
+        raise ValueError(
+            "Output file for presentations must be HTML, got: " + params.output
+        )
 
-    header_path = pkg_resources.files("mdfusion.reveal").joinpath("header.html").__fspath__()
-    footer_path = pkg_resources.files("mdfusion.reveal").joinpath("footer.html").__fspath__()
+    header_path = (
+        pkg_resources.files("mdfusion.reveal").joinpath("header.html").__fspath__()
+    )
+    footer_path = (
+        pkg_resources.files("mdfusion.reveal").joinpath("footer.html").__fspath__()
+    )
     params.pandoc_args.extend(
         [
             "-t",
@@ -345,8 +374,6 @@ def _apply_presentation_pandoc_args(params: RunParams) -> None:
     )
 
 
-
-
 def run(params_: "RunParams"):
     if not requirements_met():
         return
@@ -359,7 +386,9 @@ def run(params_: "RunParams"):
 
     if not params.root_dir:
         if params_.config_path:
-            print(f"Using directory of config file as root_dir: {params_.config_path.parent}")
+            print(
+                f"Using directory of config file as root_dir: {params_.config_path.parent}"
+            )
             params.root_dir = params_.config_path.parent
         else:
             print("Using current directory as root_dir: ", Path.cwd())
@@ -395,7 +424,11 @@ def run(params_: "RunParams"):
         resource_dirs = {str(p.parent) for p in md_files}
         resource_path = ":".join(sorted(resource_dirs))
 
-        default_output = str(params.root_dir / f"{params.root_dir.name}.pdf" if not params.presentation.presentation else params.root_dir / f"{params.root_dir.name}.html")
+        default_output = str(
+            params.root_dir / f"{params.root_dir.name}.pdf"
+            if not params.presentation.presentation
+            else params.root_dir / f"{params.root_dir.name}.html"
+        )
         out_pdf = params.output or default_output
         cmd = [
             "pandoc",
@@ -413,20 +446,15 @@ def run(params_: "RunParams"):
 
         if params.toc:
             cmd.append("--toc")
-        
+
         cmd.extend(params.pandoc_args)
 
         run_pandoc_with_spinner(cmd, out_pdf, source_spans)
-        
-        
-        
-                
+
         # If output is HTML, bundle it with htmlark
         # (always do this because custom plugins wont work otherwise)
         final_output = Path(out_pdf)
         if str(out_pdf).endswith(".html"):
-            
-            
             """
             Provide a config script tag with data attributes so public JS can read it.
             """
@@ -442,29 +470,35 @@ def run(params_: "RunParams"):
             output_file = Path(out_pdf)
             html_content = output_file.read_text(encoding="utf-8")
             if "</head>" in html_content:
-                html_content = html_content.replace("</head>", f"{config_script}\n</head>")
+                html_content = html_content.replace(
+                    "</head>", f"{config_script}\n</head>"
+                )
             else:
                 html_content = f"{config_script}\n" + html_content
             output_file.write_text(html_content, encoding="utf-8")
-            
+
             # create a temp folder that contains the html and all necessary files:
             # copy the HTML output to a temp file
             temp_output = temp_dir / (Path(out_pdf).name)
             shutil.copy(str(final_output), str(temp_output))
-            
+
             # copy public folder content into temp directory
-            public_dir = Path(os.path.join(os.path.dirname(__file__), "reveal", "public"))
+            public_dir = Path(
+                os.path.join(os.path.dirname(__file__), "reveal", "public")
+            )
             if public_dir.is_dir():
                 for item in public_dir.iterdir():
                     if item.is_file():
                         shutil.copy(item, temp_dir / item.name)
 
             bundle_html(temp_output, final_output)
-                
+
         # if output is html presentation, convert to pdf as well
         if params.presentation.presentation:
             html_to_pdf(final_output, chromium_path=params.presentation.chromium_path)
-            print(f"Converted HTML presentation to PDF: {final_output.with_suffix('.pdf')}")
+            print(
+                f"Converted HTML presentation to PDF: {final_output.with_suffix('.pdf')}"
+            )
     except Exception as e:
         print(f"Error during processing: {e}", file=sys.stderr)
         sys.exit(1)
