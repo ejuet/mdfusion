@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script to merge all Markdown files under a directory into one .md,
-then convert that merged.md → PDF via Pandoc + XeLaTeX
+then convert that merged.md → PDF via Pandoc + Tectonic
 Supports many command line arguments and a TOML config file.
 """
 
@@ -376,9 +376,6 @@ def _apply_presentation_pandoc_args(params: RunParams) -> None:
 
 
 def run(params_: "RunParams"):
-    if not requirements_met():
-        return
-
     # Merge config defaults with CLI args
     params: RunParams = merge_cli_args_with_config_for(
         params_, params_.config_path, root_cls=RunParams, normalize=_normalize_params
@@ -438,7 +435,11 @@ def run(params_: "RunParams"):
             str(merged),
             "-o",
             out_pdf,
-            "--pdf-engine=xelatex",
+            "--pdf-engine=tectonic",
+            # Tectonic omits the `l.<line> ...` context on failure unless
+            # printing engine chatter. We need that snippet to map errors back
+            # to the merged Markdown and then to the original source file.
+            "--pdf-engine-opt=-p",
             f"--resource-path={resource_path}",
         ]
         # If md will be converted to latex, use latex header
@@ -507,16 +508,6 @@ def run(params_: "RunParams"):
     finally:
         if params.merged_md is None:
             shutil.rmtree(temp_dir)
-
-
-def requirements_met() -> bool:
-    """Check if requirements are met."""
-    xetex = shutil.which("xetex")
-
-    if not xetex:
-        print("ERR: xetex not found", file=sys.stderr)
-
-    return xetex is not None
 
 
 def main():
