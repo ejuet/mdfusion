@@ -61,15 +61,12 @@ def build_header(
     )
     if separate_title_page or title_page_image:
         title_wrapper_start = (
-            "  \\begin{titlepage}\n"
-            "  \\centering\n"
-            "  \\vspace*{\\fill}\n"
+            "  \\begin{titlepage}\n  \\centering\n  \\vspace*{\\fill}\n"
             if separate_title_page
             else "  \\begin{center}\n"
         )
         title_wrapper_end = (
-            "  \\vspace*{\\fill}\n"
-            "  \\end{titlepage}\n"
+            "  \\vspace*{\\fill}\n  \\end{titlepage}\n"
             if separate_title_page
             else "  \\end{center}\n"
         )
@@ -290,7 +287,9 @@ class RunParams:
     )
     title: str | None = None  # title for title page (defaults to dirname)
     subtitle: str | None = None  # optional subtitle for the title page
-    title_page_image: str | None = None  # optional local path or URL for a title-page image
+    title_page_image: str | None = (
+        None  # optional local path or URL for a title-page image
+    )
     author: str | None = None  # author for title page (defaults to OS user)
     document_date: str | None = (
         None  # explicit date text for document metadata/title page
@@ -368,6 +367,47 @@ def _apply_presentation_pandoc_args(params: RunParams) -> None:
     )
 
 
+def _create_reveal_presentation(
+    raw_html_file: str,
+    final_output_html: Path,
+    params: RunParams,
+    temp_dir: Path,
+):
+    """
+    Provide a config script tag with data attributes so public JS can read it.
+    """
+    # TODO allow including html files for this
+    # Prepare inline config script
+    config_script = (
+        "<script>"
+        f"window.config = {{ footerText: '{params.presentation.footer_text}', animateAllLines: {str(params.presentation.animate_all_lines).lower()} }};"
+        "</script>"
+    )
+
+    # Inject inline window.config script into <head> in HTML output
+    output_file = Path(raw_html_file)
+    html_content = output_file.read_text(encoding="utf-8")
+    if "</head>" in html_content:
+        html_content = html_content.replace("</head>", f"{config_script}\n</head>")
+    else:
+        html_content = f"{config_script}\n" + html_content
+    output_file.write_text(html_content, encoding="utf-8")
+
+    # create a temp folder that contains the html and all necessary files:
+    # copy the HTML output to a temp file
+    temp_output = temp_dir / (Path(raw_html_file).name)
+    shutil.copy(str(final_output_html), str(temp_output))
+
+    # copy public folder content into temp directory
+    public_dir = Path(os.path.join(os.path.dirname(__file__), "reveal", "public"))
+    if public_dir.is_dir():
+        for item in public_dir.iterdir():
+            if item.is_file():
+                shutil.copy(item, temp_dir / item.name)
+
+    bundle_html(temp_output, final_output_html)
+
+
 def run(params_: "RunParams"):
     # Merge config defaults with CLI args
     params: RunParams = merge_cli_args_with_config_for(
@@ -437,13 +477,13 @@ def run(params_: "RunParams"):
             if not params.presentation.presentation
             else params.root_dir / f"{params.root_dir.name}.html"
         )
-        out_pdf = params.output or default_output
+        output_file = params.output or default_output
         resolved_title_page_image = None
         if (
             params.title_page
             and params.title_page_image
             and not params.presentation.presentation
-            and str(out_pdf).endswith(".pdf")
+            and str(output_file).endswith(".pdf")
         ):
             resolved_title_page_image = prepare_title_page_image(
                 params.title_page_image, temp_dir, params.root_dir
@@ -454,7 +494,7 @@ def run(params_: "RunParams"):
             "-s",
             str(merged),
             "-o",
-            out_pdf,
+            output_file,
             "--pdf-engine=tectonic",
             # Tectonic omits the `l.<line> ...` context on failure unless
             # printing engine chatter. We need that snippet to map errors back
@@ -463,7 +503,7 @@ def run(params_: "RunParams"):
             f"--resource-path={resource_path}",
         ]
         # If md will be converted to latex, use latex header
-        if out_pdf.endswith(".pdf"):
+        if output_file.endswith(".pdf"):
             hdr = build_header(
                 user_header,
                 separate_title_page=use_separate_title_page,
@@ -477,49 +517,15 @@ def run(params_: "RunParams"):
 
         cmd.extend(params.pandoc_args)
 
-        run_pandoc_with_spinner(cmd, out_pdf, source_spans)
+        run_pandoc_with_spinner(cmd, output_file, source_spans)
 
         # If output is HTML, bundle it with htmlark
         # (always do this because custom plugins wont work otherwise)
-        final_output = Path(out_pdf)
-        if str(out_pdf).endswith(".html"):
-            """
-            Provide a config script tag with data attributes so public JS can read it.
-            """
-            # TODO allow including html files for this
-            # Prepare inline config script
-            config_script = (
-                "<script>"
-                f"window.config = {{ footerText: '{params.presentation.footer_text}', animateAllLines: {str(params.presentation.animate_all_lines).lower()} }};"
-                "</script>"
-            )
-
-            # Inject inline window.config script into <head> in HTML output
-            output_file = Path(out_pdf)
-            html_content = output_file.read_text(encoding="utf-8")
-            if "</head>" in html_content:
-                html_content = html_content.replace(
-                    "</head>", f"{config_script}\n</head>"
-                )
-            else:
-                html_content = f"{config_script}\n" + html_content
-            output_file.write_text(html_content, encoding="utf-8")
-
-            # create a temp folder that contains the html and all necessary files:
-            # copy the HTML output to a temp file
-            temp_output = temp_dir / (Path(out_pdf).name)
-            shutil.copy(str(final_output), str(temp_output))
-
-            # copy public folder content into temp directory
-            public_dir = Path(
-                os.path.join(os.path.dirname(__file__), "reveal", "public")
-            )
-            if public_dir.is_dir():
-                for item in public_dir.iterdir():
-                    if item.is_file():
-                        shutil.copy(item, temp_dir / item.name)
-
-            bundle_html(temp_output, final_output)
+        final_output = Path(
+            output_file
+        )  # we write to the same file as the pandoc output
+        if str(output_file).endswith(".html"):
+            _create_reveal_presentation(output_file, final_output, params, temp_dir)
 
         # if output is html presentation, convert to pdf as well
         if params.presentation.presentation:
