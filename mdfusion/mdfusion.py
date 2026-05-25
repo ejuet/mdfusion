@@ -45,7 +45,9 @@ def find_markdown_files(root_dir: Path) -> list[Path]:
     return md_paths
 
 
-def build_header(header_tex: Path | None = None) -> Path:
+def build_header(
+    header_tex: Path | None = None, separate_title_page: bool = False
+) -> Path:
     header_content = (
         r"\usepackage[margin=1in]{geometry}"
         "\n"
@@ -58,6 +60,37 @@ def build_header(header_tex: Path | None = None) -> Path:
         r"\sectionfont{\centering\fontsize{16}{18}\selectfont}"
         "\n"
     )
+    if separate_title_page:
+        header_content += (
+            r"\makeatletter"
+            "\n"
+            r"\renewcommand{\maketitle}{%"
+            "\n"
+            r"  \begin{titlepage}"
+            "\n"
+            r"  \centering"
+            "\n"
+            r"  \vspace*{\fill}"
+            "\n"
+            r"  {\Huge \@title \par}"
+            "\n"
+            r"  \vspace{1.5cm}"
+            "\n"
+            r"  {\Large \@author \par}"
+            "\n"
+            r"  \vspace{1cm}"
+            "\n"
+            r"  {\large \@date \par}"
+            "\n"
+            r"  \vspace*{\fill}"
+            "\n"
+            r"  \end{titlepage}"
+            "\n"
+            r"}"
+            "\n"
+            r"\makeatother"
+            "\n"
+        )
     tmp = tempfile.NamedTemporaryFile(
         "w", suffix=".tex", delete=False, encoding="utf-8"
     )
@@ -305,6 +338,9 @@ class RunParams:
     root_dir: Path | None = None  # root directory for Markdown files
     output: str | None = None  # output PDF filename (defaults to <root_dir>.pdf)
     title_page: bool = False  # include a title page
+    separate_title_page: bool = (
+        True  # render the title page on its own centered page with a page break after
+    )
     title: str | None = None  # title for title page (defaults to dirname)
     author: str | None = None  # author for title page (defaults to OS user)
     pandoc_args: list[str] | str = field(
@@ -405,6 +441,12 @@ def run(params_: "RunParams"):
         if (params.title_page or params.title or params.author)
         else ""
     )
+    use_separate_title_page = bool(
+        params.title_page
+        and metadata
+        and not params.presentation.presentation
+        and params.separate_title_page
+    )
 
     temp_dir = params.merged_md or Path(tempfile.mkdtemp(prefix="mdfusion_"))
     try:
@@ -444,7 +486,7 @@ def run(params_: "RunParams"):
         ]
         # If md will be converted to latex, use latex header
         if out_pdf.endswith(".pdf"):
-            hdr = build_header(user_header)
+            hdr = build_header(user_header, separate_title_page=use_separate_title_page)
             cmd.append(f"--include-in-header={hdr}")
 
         if params.toc:

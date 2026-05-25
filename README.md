@@ -9,6 +9,7 @@ Merge all Markdown files in a directory tree into a single PDF or HTML presentat
 - **Recursively collects and sorts** all `.md` files under a directory (natural sort order)
 - **Merges** them into one document, rewriting image links to absolute paths (so images with the same name in different folders don't collide)
 - **Optionally adds a title page** with configurable title, author, and date
+- **Can render the title page as its own centered page** with a page break after it
 - **Supports both PDF (via Pandoc + XeLaTeX) and HTML presentations (via reveal.js)**
 - **Customizes output** with your own LaTeX or HTML headers/footers
 - **Configurable via TOML** for repeatable builds (great for books, reports, or slides)
@@ -56,6 +57,7 @@ You can also pass extra Pandoc arguments at the end of the command; any unknown 
 - `--output FILE`          Output filename (default: `<root_dir>.pdf` or `.html` for presentations)
 - `--toc`                  Include table of contents (use `--notoc` to disable)
 - `--title_page`           Include a title page (PDF only)
+- `--separate_title_page`  Put the title page on its own centered page (default: true; use `--noseparate_title_page` to disable)
 - `--title TITLE`          Set title for title page (default: directory name)
 - `--author AUTHOR`        Set author for title page (default: OS user)
 - `--pandoc_args ARGS`     Extra Pandoc arguments (whitespace-separated)
@@ -98,6 +100,7 @@ root_dir = "docs"
 output = "my-book.pdf"
 toc = true
 title_page = true
+separate_title_page = true
 title = "My Book"
 author = "Jane Doe"
 pandoc_args = ["--number-sections", "--slide-level", "2", "--toc-depth", "4"]
@@ -134,7 +137,7 @@ mdfusion
 
 1. Finds and sorts all Markdown files under the root directory (natural order)
 2. Merges them into one file, rewriting image links to absolute paths
-3. Optionally adds a YAML metadata block for title/author/date
+3. Optionally adds title/author/date metadata and a dedicated title page
 4. Calls Pandoc with XeLaTeX (for PDF) or reveal.js (for HTML presentations)
 5. Optionally bundles HTML output with all assets for easy sharing
 

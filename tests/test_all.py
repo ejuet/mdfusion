@@ -3,6 +3,7 @@ from datetime import date
 
 import pytest
 
+import mdfusion.mdfusion as mdfusion
 from mdfusion.mdfusion import (
     natural_key,
     find_markdown_files,
@@ -46,6 +47,7 @@ def test_build_header_without_user(tmp_path):
     # default packages must be present
     assert r"\usepackage[margin=1in]{geometry}" in content
     assert r"\sectionfont{\centering\fontsize{16}{18}\selectfont}" in content
+    assert r"\renewcommand{\maketitle}" not in content
     # no user header markers
     assert "% --- begin user header.tex ---" not in content
     hdr_path.unlink()
@@ -62,6 +64,20 @@ def test_build_header_with_user(tmp_path):
     assert "% custom header" in content
     assert "% --- end user header.tex ---" in content
     hdr_path.unlink()
+
+
+def test_build_header_with_separate_title_page(tmp_path):
+    hdr_path = build_header(None, separate_title_page=True)
+    content = hdr_path.read_text(encoding="utf-8")
+    assert r"\renewcommand{\maketitle}" in content
+    assert r"\begin{titlepage}" in content
+    assert r"\vspace*{\fill}" in content
+    hdr_path.unlink()
+
+
+def test_run_params_enable_separate_title_page_by_default():
+    params = mdfusion.RunParams()
+    assert params.separate_title_page is True
 
 
 def test_create_metadata_includes_fields_and_today():
