@@ -68,6 +68,7 @@ You can also pass extra Pandoc arguments at the end of the command; any unknown 
 - `--config_path FILE`     Path to a `mdfusion.toml` config file (default: `mdfusion.toml` in the current directory)
 - `--header_tex PATH`      Custom LaTeX header to include (defaults to `./header.tex` if present)
 - `--merged_md DIR`        Write merged Markdown to this directory (uses a temp dir by default)
+- `--exclude PATHS`        Whitespace-separated files, directories, or glob patterns to skip while merging
 - `--remove_alt_texts TXT` Comma-separated list of image alt texts to strip (default: `alt text`)
 - `--verbose`              Enable verbose Pandoc output
 
@@ -111,6 +112,7 @@ subtitle = "Working Draft"
 author = "Jane Doe"
 date_format = "%d.%m.%Y"
 pandoc_args = ["--number-sections", "--slide-level", "2", "--toc-depth", "4"]
+exclude = ["drafts", "appendix/private.md", "notes/*.md"]
 # header_tex = "header.tex"  # Optional: custom LaTeX header
 ```
 

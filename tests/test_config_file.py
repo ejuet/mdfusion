@@ -13,6 +13,8 @@ def test_with_config(tmp_path, monkeypatch, capsys):
     docs.mkdir()
     (docs / "a.md").write_text("# First\n\nHello")
     (docs / "b.md").write_text("# Second\n\nWorld")
+    merged_md_dir = tmp_path / "merged"
+    merged_md_dir.mkdir()
 
     # 2) Write a .mdfusion config in the cwd
     cfg = tmp_path / "mdfusion.toml"
@@ -21,16 +23,19 @@ def test_with_config(tmp_path, monkeypatch, capsys):
 [mdfusion]
 root_dir = "{docs.as_posix()}"
 output = "my-book.pdf"
+merged_md = "{merged_md_dir.as_posix()}"
 toc = false
 title_page = true
 title = "Config Title"
 author = "Config Author"
 pandoc_args ="--number-sections"
+exclude = ["b.md"]
 """
     )
 
     # 3) chdir into tmp_path so script sees ./​.mdfusion
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["mdfusion"])
 
     # 4) Stub out mdfusion.run_pandoc_with_spinner to capture the cmd
     captured = {}
@@ -64,3 +69,8 @@ pandoc_args ="--number-sections"
     assert any(arg.startswith("--include-in-header=") for arg in cmd)
     # And resource-path pointing at our two files
     assert any("merged.md" in arg or str(docs) in arg for arg in cmd)
+
+    merged_md = merged_md_dir / "merged.md"
+    merged_content = merged_md.read_text(encoding="utf-8")
+    assert "# First" in merged_content
+    assert "# Second" not in merged_content

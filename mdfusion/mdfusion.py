@@ -8,6 +8,7 @@ Supports many command line arguments and a TOML config file.
 import os
 import sys
 import re
+import fnmatch
 import subprocess
 import tempfile
 import shutil
@@ -39,8 +40,31 @@ def natural_key(s: str):
     return [int(tok) if tok.isdigit() else tok.lower() for tok in re.split(r"(\d+)", s)]
 
 
-def find_markdown_files(root_dir: Path) -> list[Path]:
-    md_paths = list(root_dir.rglob("*.md"))
+def _matches_exclude_pattern(path: Path, root_dir: Path, pattern: str) -> bool:
+    rel_path = path.relative_to(root_dir).as_posix()
+    normalized_pattern = pattern.strip().replace("\\", "/").rstrip("/")
+    if not normalized_pattern:
+        return False
+
+    if fnmatch.fnmatch(rel_path, normalized_pattern):
+        return True
+    if fnmatch.fnmatch(path.name, normalized_pattern):
+        return True
+    if rel_path == normalized_pattern or rel_path.startswith(normalized_pattern + "/"):
+        return True
+    return normalized_pattern in rel_path.split("/")
+
+
+def find_markdown_files(root_dir: Path, exclude: list[str] | None = None) -> list[Path]:
+    exclude_patterns = exclude or []
+    md_paths = [
+        path
+        for path in root_dir.rglob("*.md")
+        if not any(
+            _matches_exclude_pattern(path, root_dir, pattern)
+            for pattern in exclude_patterns
+        )
+    ]
     md_paths.sort(key=lambda p: natural_key(str(p.relative_to(root_dir))))
     return md_paths
 
@@ -400,6 +424,9 @@ class RunParams:
     merged_md: Path | None = (
         None  # folder to write merged markdown to. Using a temp folder by default.
     )
+    exclude: list[str] = field(
+        default_factory=list
+    )  # file/directory paths, names, or glob patterns to skip while merging
     remove_alt_texts: list[str] = field(
         default_factory=lambda: ["alt text"]
     )  # alt texts to remove from images, comma-separated
@@ -475,7 +502,7 @@ def run(params_: "RunParams"):
         else:
             print("Using current directory as root_dir: ", Path.cwd())
             params.root_dir = Path.cwd()
-    md_files = find_markdown_files(params.root_dir)
+    md_files = find_markdown_files(params.root_dir, exclude=params.exclude)
     if not md_files:
         print(f"No Markdown files found in {params.root_dir}", file=sys.stderr)
         sys.exit(1)

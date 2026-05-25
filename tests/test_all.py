@@ -42,6 +42,27 @@ def test_find_markdown_files(tmp_path):
     assert rel == ["1.md", "2.md", "10.md", "a/3.md", "b/11.md"]
 
 
+def test_find_markdown_files_excludes_files_directories_and_globs(tmp_path):
+    root = tmp_path / "docs"
+    (root / "keep").mkdir(parents=True)
+    (root / "skip-dir").mkdir()
+    (root / "nested" / "drafts").mkdir(parents=True)
+
+    (root / "keep" / "keep.md").write_text("# keep")
+    (root / "skip-dir" / "ignored.md").write_text("# ignored")
+    (root / "nested" / "drafts" / "draft.md").write_text("# draft")
+    (root / "nested" / "skip-me.md").write_text("# skip me")
+    (root / "nested" / "keep-too.md").write_text("# keep too")
+
+    found = find_markdown_files(
+        root,
+        exclude=["skip-dir", "nested/skip-me.md", "*/drafts/*"],
+    )
+
+    rel = [p.relative_to(root).as_posix() for p in found]
+    assert rel == ["keep/keep.md", "nested/keep-too.md"]
+
+
 def test_build_header_without_user(tmp_path):
     hdr_path = build_header(None)
     content = hdr_path.read_text(encoding="utf-8")
