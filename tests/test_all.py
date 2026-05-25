@@ -9,6 +9,7 @@ from mdfusion.mdfusion import (
     find_markdown_files,
     build_header,
     create_metadata,
+    format_document_date,
     merge_markdown,
 )
 
@@ -75,21 +76,53 @@ def test_build_header_with_separate_title_page(tmp_path):
     hdr_path.unlink()
 
 
+def test_build_header_with_page_break_after_toc(tmp_path):
+    hdr_path = build_header(None, page_break_after_toc=True)
+    content = hdr_path.read_text(encoding="utf-8")
+    assert r"\renewcommand{\tableofcontents}" in content
+    assert r"\clearpage" in content
+    hdr_path.unlink()
+
+
 def test_run_params_enable_separate_title_page_by_default():
     params = mdfusion.RunParams()
     assert params.separate_title_page is True
 
 
-def test_create_metadata_includes_fields_and_today():
+def test_run_params_disable_page_break_after_toc_by_default():
+    params = mdfusion.RunParams()
+    assert params.page_break_after_toc is False
+
+
+def test_run_params_default_date_format():
+    params = mdfusion.RunParams()
+    assert params.date_format == "%d.%m.%Y"
+
+
+def test_format_document_date_uses_default_format():
+    expected = date.today().strftime("%d.%m.%Y")
+    assert format_document_date() == expected
+
+
+def test_format_document_date_uses_custom_format():
+    expected = date.today().strftime("%Y/%m/%d")
+    assert format_document_date(date_format="%Y/%m/%d") == expected
+
+
+def test_format_document_date_prefers_explicit_value():
+    assert format_document_date("2026-05-25", "%Y/%m/%d") == "2026-05-25"
+
+
+def test_create_metadata_includes_fields_and_formatted_date():
     title = "My Title"
     author = "Jane Doe"
-    md = create_metadata(title, author)
-    today = date.today().isoformat()
+    document_date = "25.05.2026"
+    md = create_metadata(title, author, document_date)
     # YAML block markers
     assert md.startswith("---\n")
     assert f'title: "{title}"' in md
     assert f'author: "{author}"' in md
-    assert f'date: "{today}"' in md
+    assert f'date: "{document_date}"' in md
     assert md.endswith("\n\n")
 
 

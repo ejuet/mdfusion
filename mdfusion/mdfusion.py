@@ -46,7 +46,9 @@ def find_markdown_files(root_dir: Path) -> list[Path]:
 
 
 def build_header(
-    header_tex: Path | None = None, separate_title_page: bool = False
+    header_tex: Path | None = None,
+    separate_title_page: bool = False,
+    page_break_after_toc: bool = False,
 ) -> Path:
     header_content = (
         r"\usepackage[margin=1in]{geometry}"
@@ -91,6 +93,23 @@ def build_header(
             r"\makeatother"
             "\n"
         )
+    if page_break_after_toc:
+        header_content += (
+            r"\makeatletter"
+            "\n"
+            r"\let\mdfusionoldtableofcontents\tableofcontents"
+            "\n"
+            r"\renewcommand{\tableofcontents}{%"
+            "\n"
+            r"  \mdfusionoldtableofcontents"
+            "\n"
+            r"  \clearpage"
+            "\n"
+            r"}"
+            "\n"
+            r"\makeatother"
+            "\n"
+        )
     tmp = tempfile.NamedTemporaryFile(
         "w", suffix=".tex", delete=False, encoding="utf-8"
     )
@@ -105,9 +124,18 @@ def build_header(
     return hdr
 
 
-def create_metadata(title: str, author: str) -> str:
-    today = date.today().isoformat()
-    return f'---\ntitle: "{title}"\nauthor: "{author}"\ndate: "{today}"\n---\n\n'
+def format_document_date(
+    document_date: str | None = None, date_format: str = "%d.%m.%Y"
+) -> str:
+    if document_date is not None:
+        return document_date
+    return date.today().strftime(date_format)
+
+
+def create_metadata(title: str, author: str, document_date: str) -> str:
+    return (
+        f'---\ntitle: "{title}"\nauthor: "{author}"\ndate: "{document_date}"\n---\n\n'
+    )
 
 
 def merge_markdown(
@@ -343,6 +371,8 @@ class RunParams:
     )
     title: str | None = None  # title for title page (defaults to dirname)
     author: str | None = None  # author for title page (defaults to OS user)
+    document_date: str | None = None  # explicit date text for document metadata/title page
+    date_format: str = "%d.%m.%Y"  # strftime format used when document_date is omitted
     pandoc_args: list[str] | str = field(
         default_factory=list
     )  # extra pandoc arguments, whitespace-separated
@@ -357,6 +387,7 @@ class RunParams:
         default_factory=lambda: ["alt text"]
     )  # alt texts to remove from images, comma-separated
     toc: bool = False  # include a table of contents
+    page_break_after_toc: bool = False  # add a page break after the TOC in PDF output
     verbose: bool = False  # enable verbose output for pandoc
 
     # Add help strings for simple-parsing
@@ -436,9 +467,10 @@ def run(params_: "RunParams"):
 
     title = params.title or params.root_dir.name
     author = params.author or getpass.getuser()
+    document_date = format_document_date(params.document_date, params.date_format)
     metadata = (
-        create_metadata(title, author)
-        if (params.title_page or params.title or params.author)
+        create_metadata(title, author, document_date)
+        if (params.title_page or params.title or params.author or params.document_date)
         else ""
     )
     use_separate_title_page = bool(
@@ -446,6 +478,11 @@ def run(params_: "RunParams"):
         and metadata
         and not params.presentation.presentation
         and params.separate_title_page
+    )
+    use_page_break_after_toc = bool(
+        params.toc
+        and not params.presentation.presentation
+        and params.page_break_after_toc
     )
 
     temp_dir = params.merged_md or Path(tempfile.mkdtemp(prefix="mdfusion_"))
@@ -486,7 +523,11 @@ def run(params_: "RunParams"):
         ]
         # If md will be converted to latex, use latex header
         if out_pdf.endswith(".pdf"):
-            hdr = build_header(user_header, separate_title_page=use_separate_title_page)
+            hdr = build_header(
+                user_header,
+                separate_title_page=use_separate_title_page,
+                page_break_after_toc=use_page_break_after_toc,
+            )
             cmd.append(f"--include-in-header={hdr}")
 
         if params.toc:

@@ -56,10 +56,13 @@ You can also pass extra Pandoc arguments at the end of the command; any unknown 
 - `--root_dir DIR`         Root directory for Markdown files (default: current directory, or config file directory)
 - `--output FILE`          Output filename (default: `<root_dir>.pdf` or `.html` for presentations)
 - `--toc`                  Include table of contents (use `--notoc` to disable)
+- `--page_break_after_toc` Insert a page break after the table of contents in PDF output (default: false)
 - `--title_page`           Include a title page (PDF only)
 - `--separate_title_page`  Put the title page on its own centered page (default: true; use `--noseparate_title_page` to disable)
 - `--title TITLE`          Set title for title page (default: directory name)
 - `--author AUTHOR`        Set author for title page (default: OS user)
+- `--document_date TEXT`   Set the date text shown in metadata/title page (default: current date)
+- `--date_format FORMAT`   `strftime` format used when `--document_date` is omitted (default: `%d.%m.%Y`)
 - `--pandoc_args ARGS`     Extra Pandoc arguments (whitespace-separated)
 - `--config_path FILE`     Path to a `mdfusion.toml` config file (default: `mdfusion.toml` in the current directory)
 - `--header_tex PATH`      Custom LaTeX header to include (defaults to `./header.tex` if present)
@@ -99,10 +102,12 @@ You can create a `mdfusion.toml` file in your project directory to avoid long co
 root_dir = "docs"
 output = "my-book.pdf"
 toc = true
+page_break_after_toc = false
 title_page = true
 separate_title_page = true
 title = "My Book"
 author = "Jane Doe"
+date_format = "%d.%m.%Y"
 pandoc_args = ["--number-sections", "--slide-level", "2", "--toc-depth", "4"]
 # header_tex = "header.tex"  # Optional: custom LaTeX header
 ```
