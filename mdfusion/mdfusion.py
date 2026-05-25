@@ -11,12 +11,15 @@ import subprocess
 import tempfile
 import shutil
 import getpass
+import mimetypes
 from pathlib import Path
 from datetime import date
 from tqdm import tqdm  # progress bar
 import time
 import selectors
 import pypandoc
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from dataclasses import dataclass, field
 import importlib.resources as pkg_resources
@@ -40,6 +43,7 @@ def build_header(
     header_tex: Path | None = None,
     separate_title_page: bool = False,
     page_break_after_toc: bool = False,
+    title_page_image: str | None = None,
 ) -> Path:
     header_content = (
         r"\usepackage[margin=1in]{geometry}"
@@ -50,39 +54,50 @@ def build_header(
         "\n"
         r"\usepackage{sectsty}"
         "\n"
+        r"\usepackage{graphicx}"
+        "\n"
         r"\sectionfont{\centering\fontsize{16}{18}\selectfont}"
         "\n"
     )
-    if separate_title_page:
+    if separate_title_page or title_page_image:
+        title_wrapper_start = (
+            "  \\begin{titlepage}\n"
+            "  \\centering\n"
+            "  \\vspace*{\\fill}\n"
+            if separate_title_page
+            else "  \\begin{center}\n"
+        )
+        title_wrapper_end = (
+            "  \\vspace*{\\fill}\n"
+            "  \\end{titlepage}\n"
+            if separate_title_page
+            else "  \\end{center}\n"
+        )
+        image_block = ""
+        if title_page_image:
+            image_block = (
+                r"  \vspace{1cm}"
+                "\n"
+                + rf"  \includegraphics[width=0.45\textwidth]{{{title_page_image}}}"
+                + r"\\"
+                + "\n"
+                + r"  \vspace{1cm}"
+                + "\n"
+            )
+
         header_content += (
-            r"\makeatletter"
-            "\n"
-            r"\renewcommand{\maketitle}{%"
-            "\n"
-            r"  \begin{titlepage}"
-            "\n"
-            r"  \centering"
-            "\n"
-            r"  \vspace*{\fill}"
-            "\n"
-            r"  {\Huge \@title \par}"
-            "\n"
-            r"  \vspace{1.5cm}"
-            "\n"
-            r"  {\Large \@author \par}"
-            "\n"
-            r"  \vspace{1cm}"
-            "\n"
-            r"  {\large \@date \par}"
-            "\n"
-            r"  \vspace*{\fill}"
-            "\n"
-            r"  \end{titlepage}"
-            "\n"
-            r"}"
-            "\n"
-            r"\makeatother"
-            "\n"
+            "\\makeatletter\n"
+            "\\renewcommand{\\maketitle}{%\n"
+            f"{title_wrapper_start}"
+            f"{image_block}"
+            "  {\\Huge \\@title \\par}\n"
+            "  \\vspace{1.5cm}\n"
+            "  {\\Large \\@author \\par}\n"
+            "  \\vspace{1cm}\n"
+            "  {\\large \\@date \\par}\n"
+            f"{title_wrapper_end}"
+            "}\n"
+            "\\makeatother\n"
         )
     if page_break_after_toc:
         header_content += (
@@ -141,6 +156,42 @@ def create_metadata(
         ]
     )
     return "\n".join(metadata_lines) + "\n"
+
+
+def prepare_title_page_image(
+    title_page_image: str | None, temp_dir: Path, base_dir: Path
+) -> str | None:
+    """Resolve local paths and download remote title-page images for LaTeX."""
+
+    if not title_page_image:
+        return None
+
+    if title_page_image.startswith(("http://", "https://")):
+        return _download_title_page_image(title_page_image, temp_dir)
+
+    image_path = Path(title_page_image).expanduser()
+    if not image_path.is_absolute():
+        image_path = base_dir / image_path
+    return image_path.resolve().as_posix()
+
+
+def _download_title_page_image(title_page_image: str, temp_dir: Path) -> str:
+    """Download a remote title-page image into the working temp directory."""
+
+    request = Request(title_page_image, headers={"User-Agent": "mdfusion"})
+    with urlopen(request, timeout=10) as response:
+        content_type = response.headers.get_content_type()
+        suffix = Path(urlparse(title_page_image).path).suffix.lower()
+        if not suffix and content_type:
+            suffix = mimetypes.guess_extension(content_type) or ""
+        if suffix == ".jpe":
+            suffix = ".jpg"
+        if not suffix:
+            suffix = ".img"
+
+        image_path = temp_dir / f"title-page-image{suffix}"
+        image_path.write_bytes(response.read())
+        return image_path.resolve().as_posix()
 
 
 def run_pandoc_with_spinner(
@@ -239,6 +290,7 @@ class RunParams:
     )
     title: str | None = None  # title for title page (defaults to dirname)
     subtitle: str | None = None  # optional subtitle for the title page
+    title_page_image: str | None = None  # optional local path or URL for a title-page image
     author: str | None = None  # author for title page (defaults to OS user)
     document_date: str | None = (
         None  # explicit date text for document metadata/title page
@@ -377,7 +429,6 @@ def run(params_: "RunParams"):
         source_spans = merge_markdown(
             md_files, merged, metadata, remove_alt=params.remove_alt_texts
         )
-
         resource_dirs = {str(p.parent) for p in md_files}
         resource_path = ":".join(sorted(resource_dirs))
 
@@ -387,6 +438,16 @@ def run(params_: "RunParams"):
             else params.root_dir / f"{params.root_dir.name}.html"
         )
         out_pdf = params.output or default_output
+        resolved_title_page_image = None
+        if (
+            params.title_page
+            and params.title_page_image
+            and not params.presentation.presentation
+            and str(out_pdf).endswith(".pdf")
+        ):
+            resolved_title_page_image = prepare_title_page_image(
+                params.title_page_image, temp_dir, params.root_dir
+            )
         pandoc_bin = pypandoc.get_pandoc_path()
         cmd = [
             pandoc_bin,
@@ -407,6 +468,7 @@ def run(params_: "RunParams"):
                 user_header,
                 separate_title_page=use_separate_title_page,
                 page_break_after_toc=use_page_break_after_toc,
+                title_page_image=resolved_title_page_image,
             )
             cmd.append(f"--include-in-header={hdr}")
 
