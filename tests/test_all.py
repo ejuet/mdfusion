@@ -5,13 +5,14 @@ import pytest
 
 import mdfusion.mdfusion as mdfusion
 from mdfusion.mdfusion import (
-    natural_key,
     find_markdown_files,
     build_header,
     create_metadata,
     format_document_date,
     merge_markdown,
 )
+
+from mdfusion.find_markdown_files import natural_key
 
 
 def test_natural_key_sorts_correctly():
@@ -186,7 +187,7 @@ def test_merge_markdown_rewrites_image_links_and_adds_pages(tmp_path):
     # regex to find rewritten links
     assert re.search(rf"!\[A pic\]\({re.escape(abs1)}\)", out)
     assert re.search(rf"!\[Another\]\({re.escape(abs2)}\)", out)
-    
+
     # Also check that the mapping from merged lines back to source lines is correct
     assert len(source_spans) == 2
     assert source_spans[0].source_path == md1

@@ -7,8 +7,6 @@ Supports many command line arguments and a TOML config file.
 
 import os
 import sys
-import re
-import fnmatch
 import subprocess
 import tempfile
 import shutil
@@ -18,14 +16,13 @@ from datetime import date
 from tqdm import tqdm  # progress bar
 import time
 import selectors
-import mdfusion.htmlark.htmlark as htmlark
 import pypandoc
 
 from dataclasses import dataclass, field
 import importlib.resources as pkg_resources
 import bs4
-from playwright.sync_api import sync_playwright
 
+from .bundle_html import bundle_html
 from .config_utils import (
     config_dataclass,
     discover_config_path,
@@ -33,40 +30,10 @@ from .config_utils import (
     parse_known_args_for,
 )
 from .error_handling import validate_local_image_links
+from .find_markdown_files import find_markdown_files
+from .html_to_pdf import html_to_pdf
+from .merge_markdown import merge_markdown
 from .pandoc_errors import SourceLineSpan, handle_pandoc_error
-
-
-def natural_key(s: str):
-    return [int(tok) if tok.isdigit() else tok.lower() for tok in re.split(r"(\d+)", s)]
-
-
-def _matches_exclude_pattern(path: Path, root_dir: Path, pattern: str) -> bool:
-    rel_path = path.relative_to(root_dir).as_posix()
-    normalized_pattern = pattern.strip().replace("\\", "/").rstrip("/")
-    if not normalized_pattern:
-        return False
-
-    if fnmatch.fnmatch(rel_path, normalized_pattern):
-        return True
-    if fnmatch.fnmatch(path.name, normalized_pattern):
-        return True
-    if rel_path == normalized_pattern or rel_path.startswith(normalized_pattern + "/"):
-        return True
-    return normalized_pattern in rel_path.split("/")
-
-
-def find_markdown_files(root_dir: Path, exclude: list[str] | None = None) -> list[Path]:
-    exclude_patterns = exclude or []
-    md_paths = [
-        path
-        for path in root_dir.rglob("*.md")
-        if not any(
-            _matches_exclude_pattern(path, root_dir, pattern)
-            for pattern in exclude_patterns
-        )
-    ]
-    md_paths.sort(key=lambda p: natural_key(str(p.relative_to(root_dir))))
-    return md_paths
 
 
 def build_header(
@@ -176,67 +143,6 @@ def create_metadata(
     return "\n".join(metadata_lines) + "\n"
 
 
-def merge_markdown(
-    md_files: list[Path],
-    merged_md: Path,
-    metadata: str,
-    remove_alt: list[str] = [],
-) -> list[SourceLineSpan]:
-    """
-    Merge multiple Markdown files into one, rewriting image links to absolute paths.
-
-    Returns a span map that links merged line ranges back to the original
-    Markdown files. The map only covers lines copied from source files; merged
-    metadata and blank separator lines are intentionally left unmapped.
-    """
-
-    # Regex to find Markdown image links that are NOT already URLs
-    IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
-    source_spans: list[SourceLineSpan] = []
-    merged_line_number = 1
-
-    with merged_md.open("w", encoding="utf-8") as out:
-        if metadata:
-            out.write(metadata)
-            merged_line_number += metadata.count("\n")
-        for md in tqdm(md_files, desc="Merging Markdown files", unit="file"):
-            text = md.read_text(encoding="utf-8")
-
-            def fix_link(m):
-                alt, link = m.groups()
-                if link.startswith("http://") or link.startswith("https://"):
-                    return f"![{alt}]({link})"  # leave unchanged
-                return f"![{alt}]({(md.parent / link).resolve()})"
-
-            # remove alt text if specified
-            def fix_alt(m):
-                alt, link = m.groups()
-                alt_text = "" if alt in remove_alt else alt
-                fixed = f"![{alt_text}]({link})"
-                return fixed
-
-            text = IMAGE_RE.sub(fix_alt, text)
-            merged_text = IMAGE_RE.sub(fix_link, text)
-
-            original_lines = text.splitlines()
-            merged_lines = merged_text.splitlines()
-            if original_lines and len(original_lines) == len(merged_lines):
-                source_spans.append(
-                    SourceLineSpan(
-                        merged_start_line=merged_line_number,
-                        merged_end_line=merged_line_number + len(original_lines) - 1,
-                        source_path=md,
-                        source_start_line=1,
-                    )
-                )
-
-            out.write(merged_text)
-            out.write("\n\n")
-            merged_line_number += len(merged_lines) + 2
-
-    return source_spans
-
-
 def run_pandoc_with_spinner(
     cmd, out_pdf, source_spans: list[SourceLineSpan] | None = None
 ):
@@ -305,82 +211,6 @@ def run_pandoc_with_spinner(
 
     except subprocess.CalledProcessError as e:
         handle_pandoc_error(e, cmd, source_spans)
-
-
-def wait_for_render_stable(page, *, timeout: int = 30_000) -> None:
-    # DOM + subresources
-    page.wait_for_load_state("domcontentloaded", timeout=timeout)
-    page.wait_for_load_state("load", timeout=timeout)
-
-    # Fonts (common reason PDFs look “unstyled” or shift)
-    page.wait_for_function(
-        """() => !document.fonts || document.fonts.status === 'loaded'""",
-        timeout=timeout,
-    )
-    # If fonts API exists, wait for the promise too (more strict)
-    page.evaluate("""() => document.fonts ? document.fonts.ready : Promise.resolve()""")
-
-    # Give the browser a couple frames to flush style/layout/paint
-    page.evaluate(
-        """() => new Promise(resolve => {
-            requestAnimationFrame(() => requestAnimationFrame(resolve));
-        })"""
-    )
-
-
-def html_to_pdf(
-    input_html: Path, chromium_path: str | None = None, output_pdf: Path | None = None
-):
-    """Convert HTML to PDF using Playwright."""
-    if output_pdf is None:
-        output_pdf = input_html.with_suffix(".pdf")
-
-    with sync_playwright() as p:
-        # if chromium is installed globally at specified path, use that
-        if chromium_path and os.path.isfile(chromium_path):
-            browser = p.chromium.launch(executable_path=chromium_path)
-        else:
-            try:
-                browser = p.chromium.launch()
-            except Exception as e:
-                print("Error launching Chromium with Playwright:", e)
-                print(
-                    "Specify a chromium instance or make sure Playwright browsers are installed by running:"
-                )
-                print("    playwright install")
-                sys.exit(1)
-        page = browser.new_page()
-        url = "file://" + str(input_html.resolve())
-        page.goto(url + "?print-pdf", wait_until="networkidle")
-        page.locator(".reveal.ready").wait_for()
-        wait_for_render_stable(page)
-        time.sleep(1)
-        page.pdf(path=output_pdf, prefer_css_page_size=True)
-        browser.close()
-
-
-def bundle_html(input_html: Path, output_html: Path | None = None):
-    """Bundle HTML with htmlark."""
-
-    old_cwd = os.getcwd()
-    os.chdir(input_html.parent)
-
-    bundled_html = htmlark.convert_page(
-        str(input_html),
-        ignore_errors=False,
-        ignore_images=False,
-        ignore_css=False,
-        ignore_js=False,
-    )
-
-    os.chdir(old_cwd)
-
-    if output_html is None:
-        output_html = input_html
-
-    with open(output_html, "w", encoding="utf-8") as f:
-        f.write(bundled_html)
-    print(f"Bundled HTML written to {output_html}")
 
 
 @config_dataclass("presentation")
