@@ -132,10 +132,24 @@ def format_document_date(
     return date.today().strftime(date_format)
 
 
-def create_metadata(title: str, author: str, document_date: str) -> str:
-    return (
-        f'---\ntitle: "{title}"\nauthor: "{author}"\ndate: "{document_date}"\n---\n\n'
+def create_metadata(
+    title: str, author: str, document_date: str, subtitle: str | None = None
+) -> str:
+    metadata_lines = [
+        "---",
+        f'title: "{title}"',
+    ]
+    if subtitle:
+        metadata_lines.append(f'subtitle: "{subtitle}"')
+    metadata_lines.extend(
+        [
+            f'author: "{author}"',
+            f'date: "{document_date}"',
+            "---",
+            "",
+        ]
     )
+    return "\n".join(metadata_lines) + "\n"
 
 
 def merge_markdown(
@@ -370,8 +384,11 @@ class RunParams:
         True  # render the title page on its own centered page with a page break after
     )
     title: str | None = None  # title for title page (defaults to dirname)
+    subtitle: str | None = None  # optional subtitle for the title page
     author: str | None = None  # author for title page (defaults to OS user)
-    document_date: str | None = None  # explicit date text for document metadata/title page
+    document_date: str | None = (
+        None  # explicit date text for document metadata/title page
+    )
     date_format: str = "%d.%m.%Y"  # strftime format used when document_date is omitted
     pandoc_args: list[str] | str = field(
         default_factory=list
@@ -469,8 +486,14 @@ def run(params_: "RunParams"):
     author = params.author or getpass.getuser()
     document_date = format_document_date(params.document_date, params.date_format)
     metadata = (
-        create_metadata(title, author, document_date)
-        if (params.title_page or params.title or params.author or params.document_date)
+        create_metadata(title, author, document_date, params.subtitle)
+        if (
+            params.title_page
+            or params.title
+            or params.subtitle
+            or params.author
+            or params.document_date
+        )
         else ""
     )
     use_separate_title_page = bool(

@@ -89,6 +89,11 @@ def test_run_params_enable_separate_title_page_by_default():
     assert params.separate_title_page is True
 
 
+def test_run_params_disable_subtitle_by_default():
+    params = mdfusion.RunParams()
+    assert params.subtitle is None
+
+
 def test_run_params_disable_page_break_after_toc_by_default():
     params = mdfusion.RunParams()
     assert params.page_break_after_toc is False
@@ -124,6 +129,11 @@ def test_create_metadata_includes_fields_and_formatted_date():
     assert f'author: "{author}"' in md
     assert f'date: "{document_date}"' in md
     assert md.endswith("\n\n")
+
+
+def test_create_metadata_includes_subtitle_when_present():
+    md = create_metadata("My Title", "Jane Doe", "25.05.2026", "My Subtitle")
+    assert 'subtitle: "My Subtitle"' in md
 
 
 def test_merge_markdown_rewrites_image_links_and_adds_pages(tmp_path):

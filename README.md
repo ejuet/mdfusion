@@ -60,6 +60,7 @@ You can also pass extra Pandoc arguments at the end of the command; any unknown 
 - `--title_page`           Include a title page (PDF only)
 - `--separate_title_page`  Put the title page on its own centered page (default: true; use `--noseparate_title_page` to disable)
 - `--title TITLE`          Set title for title page (default: directory name)
+- `--subtitle TEXT`        Set an optional subtitle for the title page
 - `--author AUTHOR`        Set author for title page (default: OS user)
 - `--document_date TEXT`   Set the date text shown in metadata/title page (default: current date)
 - `--date_format FORMAT`   `strftime` format used when `--document_date` is omitted (default: `%d.%m.%Y`)
@@ -106,6 +107,7 @@ page_break_after_toc = false
 title_page = true
 separate_title_page = true
 title = "My Book"
+subtitle = "Working Draft"
 author = "Jane Doe"
 date_format = "%d.%m.%Y"
 pandoc_args = ["--number-sections", "--slide-level", "2", "--toc-depth", "4"]
