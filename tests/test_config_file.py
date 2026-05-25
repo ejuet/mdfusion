@@ -49,7 +49,7 @@ pandoc_args ="--number-sections"
 
     cmd = captured.get("cmd", [])
     # Should start with pandoc and merged.md → my-book.pdf
-    assert cmd[0] == "pandoc"
+    assert "pandoc" in cmd[0]
     assert "-o" in cmd and "my-book.pdf" in cmd
 
     # toc=false means --toc must NOT appear

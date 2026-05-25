@@ -13,6 +13,7 @@ dependencies = [
     "toml",
     "tqdm",
     "simple-parsing",
+    "pypandoc_binary",
     "playwright",
     # for htmlark:
     "beautifulsoup4",

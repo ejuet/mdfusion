@@ -22,8 +22,9 @@ Merge all Markdown files in a directory tree into a single PDF or HTML presentat
 
 You must have the following on your `PATH`:
 
-- [pandoc](https://pandoc.org/)
 - [xetex](https://www.tug.org/xetex/) (for PDF output)
+
+`pandoc` is provided through the Python dependency `pypandoc_binary`, so you do not need a separate global Pandoc installation.
 
 For HTML presentations and PDF export from HTML, you may also want to install:
 

@@ -18,6 +18,7 @@ from tqdm import tqdm  # progress bar
 import time
 import selectors
 import mdfusion.htmlark.htmlark as htmlark
+import pypandoc
 
 from dataclasses import dataclass, field
 import importlib.resources as pkg_resources
@@ -430,8 +431,9 @@ def run(params_: "RunParams"):
             else params.root_dir / f"{params.root_dir.name}.html"
         )
         out_pdf = params.output or default_output
+        pandoc_bin = pypandoc.get_pandoc_path()
         cmd = [
-            "pandoc",
+            pandoc_bin,
             "-s",
             str(merged),
             "-o",
@@ -509,16 +511,12 @@ def run(params_: "RunParams"):
 
 def requirements_met() -> bool:
     """Check if requirements are met."""
-    # shutil.which is a builtin cross-platform which utility
-    pandoc = shutil.which("pandoc")
     xetex = shutil.which("xetex")
 
-    if not pandoc:
-        print("ERR: pandoc not found", file=sys.stderr)
     if not xetex:
         print("ERR: xetex not found", file=sys.stderr)
 
-    return bool(pandoc and xetex)
+    return xetex is not None
 
 
 def main():
